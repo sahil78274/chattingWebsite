@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { ArrowLeft, Ban, Bell, BellOff, Flag, MoreVertical, Trash2, UserRound } from 'lucide-react';
+import { ArrowLeft, Ban, Bell, BellOff, Flag, MoreVertical, Trash2, UserRound, Volume2, VolumeX } from 'lucide-react';
 import { Avatar } from './Avatar.jsx';
 import { formatLastSeen } from '../lib/format.js';
 import { useClickOutside } from '../hooks/useClickOutside.js';
@@ -15,14 +15,17 @@ export function ChatHeader({
   notificationsEnabled,
   onToggleNotifications,
   onReport,
-  onHide
+  onHide,
+  muted = false,
+  onToggleMute,
+  soundEnabled = true,
+  onToggleSound
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
   useClickOutside(menuRef, () => setMenuOpen(false), menuOpen);
 
   const presenceText = typing ? 'typing…' : formatLastSeen(peer);
-  // Show the unique handle alongside presence so the identity is unambiguous.
   const status = peer?.username ? `@${peer.username} · ${presenceText}` : presenceText;
 
   return (
@@ -45,11 +48,23 @@ export function ChatHeader({
           >
             {!typing && peer?.online ? <span className="dot" aria-hidden /> : null}
             {status}
+            {muted ? <span style={{ marginLeft: 6, display: 'inline-flex', alignItems: 'center', gap: 4 }}><VolumeX size={11} /> muted</span> : null}
           </span>
         </span>
       </button>
 
       <div className="chat-header__actions">
+        <button
+          type="button"
+          className={`icon-btn${muted ? ' is-active' : ''}`}
+          onClick={onToggleMute}
+          title={muted ? 'Unmute conversation' : 'Mute conversation'}
+          aria-label={muted ? 'Unmute conversation' : 'Mute conversation'}
+          aria-pressed={muted}
+        >
+          {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+        </button>
+
         <button
           type="button"
           className={`icon-btn${notificationsEnabled ? ' is-active' : ''}`}
@@ -90,12 +105,38 @@ export function ChatHeader({
                 role="menuitem"
                 onClick={() => {
                   setMenuOpen(false);
+                  onToggleMute?.();
+                }}
+              >
+                {muted ? <Volume2 size={16} /> : <VolumeX size={16} />}
+                {muted ? 'Unmute conversation' : 'Mute conversation'}
+              </button>
+              <button
+                type="button"
+                className="menu__item"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
                   onToggleNotifications();
                 }}
               >
                 {notificationsEnabled ? <BellOff size={16} /> : <Bell size={16} />}
-                {notificationsEnabled ? 'Mute notifications' : 'Enable notifications'}
+                {notificationsEnabled ? 'Mute browser notifications' : 'Enable browser notifications'}
               </button>
+              {onToggleSound ? (
+                <button
+                  type="button"
+                  className="menu__item"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onToggleSound();
+                  }}
+                >
+                  {soundEnabled ? <VolumeX size={16} /> : <Volume2 size={16} />}
+                  {soundEnabled ? 'Mute sounds' : 'Enable sounds'}
+                </button>
+              ) : null}
               <div className="menu__separator" />
               {blockedByMe ? (
                 <button

@@ -139,10 +139,13 @@ export class MongoStore {
   }
 
   async searchUsers({ query, excludeId, limit, offset }) {
-    const escaped = String(query).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const trimmed = String(query).trim();
+    if (!trimmed) return [];
+    const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const lower = trimmed.toLowerCase();
     const filter = { _id: { $ne: excludeId } };
-    if (/^[a-f0-9]{24}$/i.test(query)) {
-      filter.$or = [{ _id: query.toLowerCase() }, { usernameLower: { $regex: `^${escaped.toLowerCase()}` } }];
+    if (/^[a-f0-9]{24}$/i.test(trimmed)) {
+      filter.$or = [{ _id: lower }, { usernameLower: { $regex: `^${escaped.toLowerCase()}` } }];
     } else {
       filter.usernameLower = { $regex: `^${escaped.toLowerCase()}` };
     }

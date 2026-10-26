@@ -20,6 +20,20 @@ export function errorHandler(err, req, res, next) {
     });
   } else if (error?.name === 'CastError') {
     error = new ApiError(400, 'Invalid identifier', { code: 'INVALID_ID' });
+    } else if (error?.name === 'UniqueViolationError') {
+    // Normalise the in-memory store's uniqueness errors to the same 409 shape
+    // the Mongo duplicate-key branch uses. Without this, a race between the
+    // pre-check and the write would surface as a generic 500.
+    const field = error.field || null;
+    const details = {};
+    if (field === 'usernameLower' || field === 'username') details.username = 'That username is already taken';
+    else if (field === 'email') details.email = 'An account with this email already exists';
+    else if (field === 'pairKey') details._ = 'Conversation already exists';
+    else if (field === 'clientId') details._ = 'Duplicate message';
+    error = new ApiError(409, field === 'email' ? 'An account with this email already exists' : field === 'usernameLower' || field === 'username' ? 'That username is already taken' : 'That value is already in use', {
+      code: field === 'usernameLower' || field === 'username' ? 'USERNAME_TAKEN' : field === 'email' ? 'EMAIL_TAKEN' : 'DUPLICATE_KEY',
+      details: Object.keys(details).length ? details : undefined
+    });
   } else if (error?.code === 11000) {
     const field = Object.keys(error.keyPattern || error.keyValue || {})[0];
     error = new ApiError(409, 'That value is already in use', {

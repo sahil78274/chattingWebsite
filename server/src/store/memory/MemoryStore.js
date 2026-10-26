@@ -164,7 +164,8 @@ export class MemoryStore {
   }
 
   async searchUsers({ query, excludeId, limit, offset }) {
-    const needle = String(query).toLowerCase();
+    const needle = String(query).trim().toLowerCase();
+    if (!needle) return [];
     const isId = /^[a-f0-9]{24}$/i.test(needle);
     const matches = [...this.users.values()].filter((user) => {
       if (user._id === excludeId) return false;
