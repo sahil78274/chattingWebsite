@@ -1,0 +1,20 @@
+{
+  "name": "connectly",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Connectly - full-stack real-time chatting website (React + Vite, Express, Socket.IO, MongoDB)",
+  "scripts": {
+    "install:all": "npm --prefix server install && npm --prefix client install",
+    "dev:server": "npm --prefix server run dev",
+    "dev:client": "npm --prefix client run dev",
+    "seed": "npm --prefix server run seed",
+    "test": "npm --prefix server test",
+    "test:mongo": "npm --prefix server run test:mongo",
+    "build": "npm --prefix client run build",
+    "check:render": "npm --prefix client run check:render",
+    "check:e2e": "npm --prefix client run check:e2e"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

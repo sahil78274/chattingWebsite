@@ -1,0 +1,37 @@
+# Render blueprint for the Connectly API (Socket.IO + Express + MongoDB Atlas).
+# Docs: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: connectly-api
+    runtime: node
+    plan: starter
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DB_DRIVER
+        value: mongo
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DB_NAME
+        value: connectly
+      - key: JWT_ACCESS_SECRET
+        sync: false
+      - key: JWT_REFRESH_SECRET
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: APP_URL
+        sync: false
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: COOKIE_SAMESITE
+        value: none
+      - key: TRUST_PROXY
+        value: "1"
+      - key: BRAND_NAME
+        value: Connectly

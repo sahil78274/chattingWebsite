@@ -1,0 +1,36 @@
+# dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# environment / secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+!**/.env.example
+*.pem
+
+# build output
+dist/
+build/
+.ssr/
+.vite/
+.vercel/
+
+# uploads (user content)
+server/uploads/*
+!server/uploads/.gitkeep
+
+# logs & coverage
+*.log
+npm-debug.log*
+coverage/
+.nyc_output/
+
+# editors / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
