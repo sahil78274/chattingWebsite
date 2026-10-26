@@ -1,0 +1,122 @@
+/* ---------------------------------------------------------------------------
+   Design tokens
+   Dark is the default theme. Everything is expressed with CSS variables so the
+   brand (colors, radii) can be re-skinned in one place.
+--------------------------------------------------------------------------- */
+:root {
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue',
+    Arial, 'Noto Sans', sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --brand-50: #eef2ff;
+  --brand-100: #e0e7ff;
+  --brand-300: #a5b4fc;
+  --brand-400: #818cf8;
+  --brand-500: #6366f1;
+  --brand-600: #4f46e5;
+  --brand-700: #4338ca;
+
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+  --radius-pill: 999px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  --sidebar-width: 352px;
+  --header-height: 72px;
+  --composer-min-height: 72px;
+
+  --transition-fast: 120ms ease;
+  --transition-base: 180ms cubic-bezier(0.2, 0, 0, 1);
+  --shadow-sm: 0 1px 2px rgba(8, 11, 18, 0.24);
+  --shadow-md: 0 8px 24px rgba(8, 11, 18, 0.28);
+  --shadow-lg: 0 24px 64px rgba(8, 11, 18, 0.45);
+}
+
+/* ------------------------------------------------------------------ dark */
+:root,
+[data-theme='dark'] {
+  color-scheme: dark;
+  --bg-app: #080b12;
+  --bg-canvas: #0b0f17;
+  --bg-elevated: #10151f;
+  --bg-raised: #151b27;
+  --bg-input: #121824;
+  --bg-hover: #1a2130;
+  --bg-active: #1f2739;
+  --bg-overlay: rgba(4, 6, 11, 0.72);
+
+  --text-primary: #eef2f9;
+  --text-secondary: #a3aec2;
+  --text-muted: #78849a;
+  --text-inverse: #0b0f17;
+
+  --border-subtle: rgba(148, 163, 184, 0.12);
+  --border-strong: rgba(148, 163, 184, 0.22);
+  --border-focus: var(--brand-400);
+
+  --bubble-in: #182031;
+  --bubble-in-text: #e8edf7;
+  --bubble-out: linear-gradient(140deg, #5459f2 0%, #4338ca 100%);
+  --bubble-out-text: #ffffff;
+
+  --accent-soft: rgba(99, 102, 241, 0.16);
+  --danger-soft: rgba(239, 68, 68, 0.14);
+  --success-soft: rgba(34, 197, 94, 0.14);
+
+  --scrollbar-thumb: rgba(148, 163, 184, 0.24);
+  --skeleton: linear-gradient(90deg, #131924 25%, #1b2330 37%, #131924 63%);
+}
+
+/* ----------------------------------------------------------------- light */
+[data-theme='light'] {
+  color-scheme: light;
+  --bg-app: #eef1f7;
+  --bg-canvas: #f7f8fc;
+  --bg-elevated: #ffffff;
+  --bg-raised: #f4f6fb;
+  --bg-input: #f2f4f9;
+  --bg-hover: #eceff6;
+  --bg-active: #e3e8f3;
+  --bg-overlay: rgba(15, 23, 42, 0.42);
+
+  --text-primary: #101828;
+  --text-secondary: #4a5568;
+  --text-muted: #64748b;
+  --text-inverse: #ffffff;
+
+  --border-subtle: rgba(15, 23, 42, 0.08);
+  --border-strong: rgba(15, 23, 42, 0.16);
+  --border-focus: var(--brand-600);
+
+  --bubble-in: #ffffff;
+  --bubble-in-text: #101828;
+  --bubble-out: linear-gradient(140deg, #5b5ef5 0%, #4338ca 100%);
+  --bubble-out-text: #ffffff;
+
+  --accent-soft: rgba(79, 70, 229, 0.1);
+  --danger-soft: rgba(239, 68, 68, 0.1);
+  --success-soft: rgba(22, 163, 74, 0.12);
+
+  --scrollbar-thumb: rgba(15, 23, 42, 0.2);
+  --skeleton: linear-gradient(90deg, #eef1f7 25%, #e4e9f2 37%, #eef1f7 63%);
+
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.08);
+  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.1);
+  --shadow-lg: 0 24px 64px rgba(15, 23, 42, 0.16);
+}

@@ -1,0 +1,25 @@
+{
+  "name": "connectly-client",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "lint": "echo \"(optional) add eslint here\"",
+    "check:render": "vite build --ssr scripts/ssr-check.jsx --outDir .ssr --emptyOutDir && node .ssr/ssr-check.js",
+    "check:e2e": "node scripts/e2e-check.mjs"
+  },
+  "dependencies": {
+    "lucide-react": "^0.436.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.2",
+    "socket.io-client": "^4.7.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.2"
+  }
+}
