@@ -1,5 +1,10 @@
 import mongoose from 'mongoose';
 import { connectMongo, disconnectMongo } from '../../config/db.js';
+// Ensure all Mongoose models are registered before store methods access mongoose.models
+import '../../models/User.js';
+import '../../models/Conversation.js';
+import '../../models/Message.js';
+import '../../models/tokens.js';
 
 const MONGO_DUPLICATE_KEY = 11000;
 
@@ -87,9 +92,11 @@ export class MongoStore {
 
   async findUserByUsername(username) {
     if (!username) return null;
-    const user = await mongoose.models.User.findOne({ usernameLower: username.toLowerCase() }).lean({
-      virtuals: true
-    });
+    const user = await mongoose.models.User.findOne({ usernameLower: username.toLowerCase() })
+      .select('+passwordHash')
+      .lean({
+        virtuals: true
+      });
     return user ? { ...user, id: user._id } : null;
   }
 
