@@ -150,11 +150,14 @@ export class MongoStore {
     if (!trimmed) return [];
     const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const lower = trimmed.toLowerCase();
-    const filter = { _id: { $ne: excludeId } };
+    // Native RegExp values and explicitly trusted server-derived operators are
+    // not rewritten by Mongoose's production `sanitizeFilter` protection.
+    const usernamePrefix = new RegExp(`^${escaped.toLowerCase()}`);
+    const filter = excludeId ? { _id: mongoose.trusted({ $ne: String(excludeId) }) } : {};
     if (/^[a-f0-9]{24}$/i.test(trimmed)) {
-      filter.$or = [{ _id: lower }, { usernameLower: { $regex: `^${escaped.toLowerCase()}` } }];
+      filter.$or = [{ _id: lower }, { usernameLower: usernamePrefix }];
     } else {
-      filter.usernameLower = { $regex: `^${escaped.toLowerCase()}` };
+      filter.usernameLower = usernamePrefix;
     }
     const results = await mongoose.models.User.find(filter)
       .sort({ usernameLower: 1 })

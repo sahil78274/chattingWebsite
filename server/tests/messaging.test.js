@@ -1,6 +1,10 @@
 import test, { before, after, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import mongoose from 'mongoose';
 import request from 'supertest';
+import { User } from '../src/models/User.js';
+import { MongoStore } from '../src/store/mongo/MongoStore.js';
+import { newId } from '../src/utils/ids.js';
 import {
   startTestServer,
   createAccount,
@@ -31,17 +35,76 @@ async function startConversation(from, to) {
 }
 
 describe('User search', () => {
-  test('finds users by partial username and by id, excluding the viewer', async () => {
-    const byPartial = await alice.agent.get('/api/users/search?q=bob_ch');
+  test('finds users case-insensitively, excludes the viewer and returns only public fields', async () => {
+    const byPartial = await alice.agent.get('/api/users/search?q=BoB_Ch');
     assert.equal(byPartial.status, 200);
-    assert.ok(byPartial.body.results.some((u) => u.username === 'bob_chat'));
+    const result = byPartial.body.results.find((user) => user.username === 'bob_chat');
+    assert.ok(result);
+
+    for (const privateField of [
+      'email',
+      'password',
+      'passwordHash',
+      'usernameLower',
+      'tokenVersion',
+      'privacy',
+      'refreshTokens',
+      'resetTokenHash'
+    ]) {
+      assert.equal(privateField in result, false, `${privateField} must not be returned`);
+    }
 
     const byId = await alice.agent.get(`/api/users/search?q=${bob.user.id}`);
     assert.equal(byId.status, 200);
     assert.equal(byId.body.results[0].username, 'bob_chat');
 
-    const selfSearch = await alice.agent.get('/api/users/search?q=alice_chat');
+    const selfSearch = await alice.agent.get('/api/users/search?q=ALICE_CHAT');
+    assert.equal(selfSearch.status, 200);
     assert.equal(selfSearch.body.results.length, 0);
+  });
+
+  test('keeps Mongo search operators valid when production query sanitization is enabled', async () => {
+    const previousSanitizeFilter = mongoose.get('sanitizeFilter');
+    const originalFind = User.collection.find;
+    const filters = [];
+
+    User.collection.find = (filter) => {
+      filters.push(filter);
+      return { toArray: async () => [] };
+    };
+    mongoose.set('sanitizeFilter', true);
+
+    try {
+      const store = new MongoStore();
+      const viewerId = newId();
+      const targetId = newId();
+
+      await assert.doesNotReject(
+        store.searchUsers({ query: 'BoB.Chat', excludeId: viewerId, limit: 10, offset: 0 })
+      );
+      await assert.doesNotReject(
+        store.searchUsers({ query: targetId, excludeId: viewerId, limit: 10, offset: 0 })
+      );
+      await assert.doesNotReject(
+        store.searchUsers({ query: 'public', limit: 10, offset: 0 })
+      );
+
+      assert.ok(filters[0].usernameLower instanceof RegExp);
+      assert.equal(filters[0].usernameLower.source, '^bob\\.chat');
+      assert.equal(filters[0].usernameLower.test('bob.chat'), true);
+      assert.equal(filters[0].usernameLower.test('bobXchat'), false);
+      assert.equal(filters[0]._id.$ne, viewerId);
+
+      assert.equal(filters[1].$or[0]._id, targetId);
+      assert.ok(filters[1].$or[1].usernameLower instanceof RegExp);
+      assert.equal(filters[1]._id.$ne, viewerId);
+
+      assert.equal('_id' in filters[2], false, 'self-exclusion is only added when an id is supplied');
+    } finally {
+      User.collection.find = originalFind;
+      if (previousSanitizeFilter === undefined) delete mongoose.options.sanitizeFilter;
+      else mongoose.set('sanitizeFilter', previousSanitizeFilter);
+    }
   });
 
   test('validates the search query and limits result size', async () => {
