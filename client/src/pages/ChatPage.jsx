@@ -29,6 +29,8 @@ import { useDebounce } from '../hooks/useDebounce.js';
 import { api } from '../services/api.js';
 
 const NOTIFICATIONS_KEY = 'connectly.notifications';
+const MUTED_KEY = 'connectly.mutedConversations';
+const SOUND_KEY = 'connectly.soundEnabled';
 
 export function ChatPage() {
   const { user, logout } = useAuth();
@@ -55,32 +57,95 @@ export function ChatPage() {
       window.Notification.permission === 'granted'
     );
   });
+  const [soundEnabled, setSoundEnabled] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    const stored = window.localStorage.getItem(SOUND_KEY);
+    return stored === null ? true : stored === '1';
+  });
+  const [mutedConversations, setMutedConversations] = useState(() => {
+    if (typeof window === 'undefined') return new Set();
+    try {
+      const raw = window.localStorage.getItem(MUTED_KEY);
+      return new Set(raw ? JSON.parse(raw) : []);
+    } catch { return new Set(); }
+  });
+  const toggleSound = useCallback(() => {
+    setSoundEnabled((current) => {
+      const next = !current;
+      window.localStorage.setItem(SOUND_KEY, next ? '1' : '0');
+      return next;
+    });
+  }, []);
+  const toggleMuteConversation = useCallback((conversationId) => {
+    setMutedConversations((current) => {
+      const next = new Set(current);
+      if (next.has(conversationId)) next.delete(conversationId);
+      else next.add(conversationId);
+      window.localStorage.setItem(MUTED_KEY, JSON.stringify([...next]));
+      return next;
+    });
+  }, []);
+
+  const mutedRef = useRef(mutedConversations);
+  useEffect(() => { mutedRef.current = mutedConversations; }, [mutedConversations]);
+  const soundEnabledRef = useRef(soundEnabled);
+  useEffect(() => { soundEnabledRef.current = soundEnabled; }, [soundEnabled]);
+
+  const playSound = useCallback(() => {
+    if (!soundEnabledRef.current) return;
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine'; o.frequency.value = 880;
+      o.connect(g); g.connect(ctx.destination);
+      g.gain.setValueAtTime(0, ctx.currentTime);
+      g.gain.linearRampToValueAtTime(0.08, ctx.currentTime + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.22);
+      o.start(ctx.currentTime); o.stop(ctx.currentTime + 0.22);
+    } catch { /* autoplay may be blocked */ }
+  }, []);
 
   const handleBrowserNotification = useCallback(
-    ({ title, message }) => {
-      if (!notificationsEnabled || !notificationSupported) return;
+    ({ title, message, conversation }) => {
+      const conversationId = conversation?.id || message.conversationId;
+      if (mutedRef.current.has(conversationId)) return;
+      // Respect in-app badge updates regardless, but suppress disruptive notifications for muted threads.
+      if (!notificationsEnabled || !notificationSupported) {
+        if (soundEnabledRef.current && document.visibilityState !== 'visible') playSound();
+        return;
+      }
       if (window.Notification.permission !== 'granted') return;
-      if (document.visibilityState === 'visible') return;
+      // If user is actively viewing this conversation, suppress browser notification
+      // but still allow in-app toast via the workspace caller.
+      if (document.visibilityState === 'visible' && workspaceActiveRef.current === conversationId) return;
       try {
         const notification = new window.Notification(title, {
           body: message.text.length > 140 ? `${message.text.slice(0, 139)}…` : message.text,
-          tag: message.conversationId,
+          tag: conversationId,
           icon: '/favicon.svg',
           badge: '/favicon.svg'
         });
         notification.onclick = () => {
           window.focus();
+          if (conversationId) {
+            const url = new URL(window.location.href);
+            url.searchParams.set('c', conversationId);
+            window.history.replaceState({}, '', url);
+            window.dispatchEvent(new Event('connectly:open-conversation'));
+          }
           notification.close();
         };
-      } catch {
-        /* notifications are best effort */
-      }
+      } catch { /* notifications are best effort */ }
+      if (soundEnabledRef.current) playSound();
     },
-    [notificationsEnabled, notificationSupported]
+    [notificationsEnabled, notificationSupported, playSound]
   );
 
+  const workspaceActiveRef = useRef(null);
   const workspace = useChatWorkspace({ user, notify, onBrowserNotification: handleBrowserNotification });
   const { actions } = workspace;
+  useEffect(() => { workspaceActiveRef.current = workspace.activeId; }, [workspace.activeId]);
 
   // Keep the open conversation in the URL so a reload restores it.
   const initialConversationRef = useRef(
@@ -118,26 +183,32 @@ export function ChatPage() {
   }, [actions]);
 
   // ------------------------------------------------------------- search
+  const searchSeqRef = useRef(0);
   useEffect(() => {
     const trimmed = debouncedQuery.trim();
     if (!trimmed) {
       setSearch({ results: [], loading: false, error: '', hasMore: false, page: 1 });
       return undefined;
     }
-    let cancelled = false;
+    const seq = (searchSeqRef.current += 1);
     setSearch((current) => ({ ...current, loading: true, error: '' }));
+    // Normalise the query client-side the same way the server does: trim and
+    // lower-case handling is done server-side, but we ensure whitespace is
+    // stripped and empty queries never hit the API.
+    const normalised = trimmed.replace(/\s+/g, ' ');
     api
-      .searchUsers(trimmed, 1)
+      .searchUsers(normalised, 1)
       .then((data) => {
-        if (cancelled) return;
+        if (seq !== searchSeqRef.current) return;
         setSearch({ results: data.results, loading: false, error: '', hasMore: data.hasMore, page: 1 });
       })
       .catch((error) => {
-        if (cancelled) return;
+        if (seq !== searchSeqRef.current) return;
+        // Surface API errors as errors, never as an empty result set.
         setSearch({ results: [], loading: false, error: error.message || 'Search failed', hasMore: false, page: 1 });
       });
     return () => {
-      cancelled = true;
+      // No abort needed beyond seq check; the response is ignored if stale.
     };
   }, [debouncedQuery]);
 
@@ -392,6 +463,10 @@ export function ChatPage() {
               onToggleNotifications={toggleNotifications}
               onReport={() => setReportTarget(peer)}
               onHide={() => confirmHideConversation(active)}
+              muted={active ? mutedConversations.has(active.id) : false}
+              onToggleMute={() => active && toggleMuteConversation(active.id)}
+              soundEnabled={soundEnabled}
+              onToggleSound={toggleSound}
             />
 
             {workspace.messagesError ? (
@@ -444,6 +519,14 @@ export function ChatPage() {
           notificationsEnabled={notificationsEnabled}
           notificationSupported={notificationSupported}
           onToggleNotifications={toggleNotifications}
+          soundEnabled={soundEnabled}
+          onToggleSound={toggleSound}
+          mutedCount={mutedConversations.size}
+          onClearMutes={() => {
+            setMutedConversations(new Set());
+            window.localStorage.removeItem(MUTED_KEY);
+            notify.success('All conversations unmuted');
+          }}
         />
       ) : null}
 
