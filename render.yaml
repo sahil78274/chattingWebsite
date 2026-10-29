@@ -33,5 +33,9 @@ services:
         value: none
       - key: TRUST_PROXY
         value: "1"
+      # Email of the already-registered account that becomes the first admin.
+      # sync: false keeps the value out of the repo; set it in the dashboard.
+      - key: ADMIN_EMAIL
+        sync: false
       - key: BRAND_NAME
         value: Connectly

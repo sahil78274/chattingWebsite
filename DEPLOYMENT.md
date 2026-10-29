@@ -77,14 +77,36 @@ curl https://connectly-api.onrender.com/api/health
 
 Never put object-storage keys in `VITE_*` variables.
 
-### First administrator
-Register the account through the normal signup form, then set `BOOTSTRAP_ADMIN_USERNAME` (or
-`BOOTSTRAP_ADMIN_EMAIL`) on the API and restart. The process promotes that existing user once — it
-only runs while the deployment has no active administrator, so it is idempotent and cannot be used
-to silently re-promote a demoted account. Remove the variable after the first successful boot and use
-the admin panel (`/admin`) to grant further roles. There is no hardcoded admin password, no public
-admin signup, and no database migration is required (Mongoose creates the `auditlogs` collection on
-first write).
+### First administrator (`ADMIN_EMAIL`)
+
+1. Register the intended administrator through the normal signup form
+   (`https://<your-app>/register`) if the account does not already exist.
+2. Render → `connectly-api` → **Environment** → add:
+   ```
+   ADMIN_EMAIL=your-admin-email@gmail.com
+   ```
+   Use the exact email of that account. Never put a password here.
+3. Deploy / restart the API. The bootstrap runs once at process start
+   (`server/src/index.js` → `bootstrapAdmin`), so a restart is sufficient — no rebuild needed.
+4. Check the Render **Logs** for one of:
+   - `Bootstrapped administrator from environment` with `via: "ADMIN_EMAIL"` → success.
+   - `Admin bootstrap skipped: no account is registered with the configured administrator email` → the
+     email does not match a registered account (or differs from it); fix the value and restart.
+   - `Admin bootstrap skipped: an active administrator already exists` → someone is already an admin;
+     nothing was changed.
+   - `Admin bootstrap skipped: the configured account is not active` → the account is suspended.
+5. Sign in with that account's existing password and open `/admin`. Only after this works, remove the
+   obsolete `BOOTSTRAP_ADMIN_USERNAME` / `BOOTSTRAP_ADMIN_EMAIL` variables if you set them.
+
+Behaviour: the account is promoted to `role: admin` only. It is never created automatically, its
+password is never changed, and nothing from the browser can influence the target. The bootstrap is
+idempotent and runs only while the deployment has no active administrator, so it cannot silently
+re-promote a demoted account. Existing administrators are never overwritten or demoted. Do not reset
+the database for this step. No database migration is required (Mongoose creates `auditlogs` on first
+write).
+
+Legacy variables `BOOTSTRAP_ADMIN_USERNAME` / `BOOTSTRAP_ADMIN_EMAIL` still work; `ADMIN_EMAIL` takes
+precedence when both are present.
 
 ### Free plan caveat
 Render free instances sleep after inactivity; the first request after sleeping takes ~30 s and open

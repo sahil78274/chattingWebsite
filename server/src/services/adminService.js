@@ -42,34 +42,103 @@ async function guardLastAdmin(store, user) {
 }
 
 /**
- * Promote an existing account listed in BOOTSTRAP_ADMIN_USERNAME / EMAIL.
+ * Resolves the configured first-administrator target from the environment.
+ *
+ * Precedence (first match wins):
+ *   1. ADMIN_EMAIL               — canonical, email based
+ *   2. BOOTSTRAP_ADMIN_USERNAME  — legacy, username based
+ *   3. BOOTSTRAP_ADMIN_EMAIL     — legacy, email based
+ *
+ * The value only ever names an EXISTING account; it is never used to create one
+ * and never carries a password.
+ */
+function resolveBootstrapTarget() {
+  const adminEmail = String(config.admin.email || '').trim();
+  const legacyUsername = String(config.admin.bootstrapUsername || '').trim();
+  const legacyEmail = String(config.admin.bootstrapEmail || '').trim();
+
+  if (adminEmail) return { via: 'ADMIN_EMAIL', email: adminEmail };
+  if (legacyUsername) return { via: 'BOOTSTRAP_ADMIN_USERNAME', username: legacyUsername };
+  if (legacyEmail) return { via: 'BOOTSTRAP_ADMIN_EMAIL', email: legacyEmail };
+  return null;
+}
+
+/** Same normalisation the signup/login flow applies before comparing emails. */
+function normalizeEmail(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+/**
+ * Promote an existing account named by ADMIN_EMAIL (or the legacy bootstrap
+ * variables) to `role: admin`.
  *
  * Safety properties:
- *  - Never creates a user and never accepts a password from the environment.
+ *  - Never creates a user and never accepts a password from the environment, so
+ *    a missing account is reported and left alone instead of being auto-created.
+ *  - Never touches the password hash or the session tokens; the administrator
+ *    keeps signing in with the account's existing credentials.
  *  - Only runs while the deployment has no active administrator yet, so leaving
  *    the variable configured cannot silently re-promote an account later (for
  *    example after an administrator deliberately demoted it).
  *  - Idempotent: re-running on an already-admin account is a no-op.
+ *  - Matches on the server-configured email only; nothing from the browser
+ *    (request body, headers, URL, localStorage) can influence the target.
  */
 export async function bootstrapAdmin(store) {
-  const username = String(config.admin.bootstrapUsername || '').trim();
-  const email = String(config.admin.bootstrapEmail || '').trim().toLowerCase();
-  if (!username && !email) return null;
+  const target = resolveBootstrapTarget();
+  if (!target) return null;
 
-  const user = username
-    ? await store.findUserByUsername(username)
-    : await store.findUserByEmail(email);
-  if (!user) {
-    logger.warn('Admin bootstrap skipped: no matching user. Register the account first, then restart.');
+  let user;
+  if (target.email) {
+    const email = normalizeEmail(target.email);
+    if (!EMAIL_PATTERN.test(email)) {
+      logger.warn('Admin bootstrap skipped: the configured administrator email is not a valid email address.', {
+        via: target.via
+      });
+      return null;
+    }
+    user = await store.findUserByEmail(email);
+    if (!user) {
+      logger.warn(
+        'Admin bootstrap skipped: no account is registered with the configured administrator email. Register that account first, then restart.',
+        { via: target.via, email }
+      );
+      return null;
+    }
+  } else {
+    user = await store.findUserByUsername(target.username);
+    if (!user) {
+      logger.warn(
+        'Admin bootstrap skipped: no account is registered with the configured administrator username. Register that account first, then restart.',
+        { via: target.via }
+      );
+      return null;
+    }
+  }
+
+  if (user.role === 'admin') {
+    logger.info('Admin bootstrap: account already has the administrator role, nothing to do.', {
+      via: target.via,
+      userId: user._id
+    });
+    return user;
+  }
+
+  if ((user.status || 'active') !== 'active') {
+    logger.warn(
+      'Admin bootstrap skipped: the configured account is not active. Reactivate it before promoting.',
+      { via: target.via, userId: user._id, status: user.status || 'active' }
+    );
     return null;
   }
-  if (user.role === 'admin') return user;
 
   const activeAdmins = await store.countActiveAdmins();
   if (activeAdmins > 0) {
     logger.warn(
-      'Admin bootstrap skipped: an active administrator already exists. Use the admin panel to grant further roles, or clear BOOTSTRAP_ADMIN_* .',
-      { activeAdmins }
+      'Admin bootstrap skipped: an active administrator already exists. Use the admin panel to grant further roles, or remove ADMIN_EMAIL / BOOTSTRAP_ADMIN_* .',
+      { via: target.via, activeAdmins }
     );
     return null;
   }
@@ -79,9 +148,12 @@ export async function bootstrapAdmin(store) {
     actor: user._id,
     action: 'admin.bootstrap',
     targetUser: user._id,
-    metadata: { via: username ? 'username' : 'email' }
+    metadata: target.email ? { via: target.via, email: normalizeEmail(target.email) } : { via: target.via }
   });
-  logger.info('Bootstrapped administrator from environment', { userId: user._id });
+  logger.info('Bootstrapped administrator from environment', {
+    via: target.via,
+    userId: user._id
+  });
   return updated;
 }
 

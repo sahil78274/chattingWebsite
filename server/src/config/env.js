@@ -112,6 +112,10 @@ export const config = {
   appUrl: process.env.APP_URL || 'http://localhost:5173',
   trustProxy: int(process.env.TRUST_PROXY, isProd ? 1 : 0),
   admin: {
+    // Canonical first-admin setup: the email of an EXISTING registered account.
+    // Server-side only — never exposed through /api/config or any VITE_* var.
+    email: process.env.ADMIN_EMAIL || '',
+    // Legacy bootstrap variables, still honoured for backwards compatibility.
     bootstrapUsername: process.env.BOOTSTRAP_ADMIN_USERNAME || '',
     bootstrapEmail: process.env.BOOTSTRAP_ADMIN_EMAIL || ''
   },

@@ -84,8 +84,8 @@ presence, typing indicators, blocking and reporting.
 - Dark (`#000000`) and light themes only, FOUC-safe, persisted in localStorage.
 - Administrator dashboard (`/admin`, with `/app/admin` kept as a legacy alias) for accounts with
   `role: admin`: live counts, recent registrations, user search/pagination, suspend/reactivate,
-  report moderation and an audit log. Bootstrap an existing user with `BOOTSTRAP_ADMIN_USERNAME` or
-  `BOOTSTRAP_ADMIN_EMAIL` — there is no hardcoded password, no public admin signup and ordinary users
+  report moderation and an audit log. Set `ADMIN_EMAIL` to an existing account's email to make it the
+  first administrator — there is no hardcoded password, no public admin signup and ordinary users
   cannot promote themselves.
 - Browser notifications with explicit permission handling.
 - Avatar image upload (local disk on the API by default — see [uploads](#image-uploads)).
@@ -289,7 +289,8 @@ without the required secrets. Copy `.env.example` → `.env` in `server/` and `c
 | `UPLOAD_DIR` | `server/uploads` | no | Development fallback only. Render wipes this on deploy. |
 | `S3_BUCKET` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | – | for durable avatars on Render | Optional S3-compatible storage. If unset, avatars go to GridFS when Mongo is connected. |
 | `S3_REGION` / `S3_ENDPOINT` / `S3_PUBLIC_BASE_URL` | `auto` / – / – | with S3 | R2/MinIO: set `S3_ENDPOINT` and a public URL. |
-| `BOOTSTRAP_ADMIN_USERNAME` / `BOOTSTRAP_ADMIN_EMAIL` | – | to create the first admin | Promotes an **existing** account on boot, but only while no active administrator exists. Never put a password here. Clear it after the first boot. |
+| `ADMIN_EMAIL` | – | to create the first admin | Email of an **existing** account; promotes it to `admin` on boot while no active administrator exists. Server-side only — never expose it to the client. No password is ever configured. |
+| `BOOTSTRAP_ADMIN_USERNAME` / `BOOTSTRAP_ADMIN_EMAIL` | – | legacy (optional) | Older way to name the first administrator. `ADMIN_EMAIL` takes precedence when both are set. |
 | `ALLOW_MEMORY_STORE` | `false` | no | Production refuses the in-memory store unless this is true. |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` / `SMTP_USER` / `SMTP_PASS` / `MAIL_FROM` | – | for password reset emails | Without these the reset link is only exposed in dev. |
 | `SEED_DEMO` | `false` | no | Creates demo accounts on boot (never in production). |
@@ -393,28 +394,49 @@ from the database record, never from the request body, a header or local storage
 | PATCH | `/admin/reports/:id` | admin | Set report status to `open` / `reviewed` / `closed` (audited) |
 | GET | `/admin/audit?page=&limit=` | admin | Audit log of every administrative action |
 
-#### Creating the first administrator (development)
+#### Creating the first administrator
 
-1. Register the account normally through `/register` (e.g. username `owner`). Signing up can never
+`ADMIN_EMAIL` names an **already registered** account. On boot the API promotes that account to
+`role: admin`. It never creates a user, never changes a password, and only runs while the deployment
+has **no active administrator** — so it is idempotent and cannot silently re-promote a demoted
+account. The variable is read on the server only; it is never returned by `/api/config`, never
+included in a `VITE_*` variable, and never accepted from the browser.
+
+Matching follows the same normalisation as signup/login: trimmed and lower-cased before lookup.
+
+**Development**
+
+1. Register the account normally through `/register` (e.g. `owner@example.com`). Signing up can never
    grant admin: `role` and `status` are server defaults.
-2. In `server/.env` set exactly one of:
+2. In `server/.env`:
    ```bash
-   BOOTSTRAP_ADMIN_USERNAME=owner
-   # or
-   BOOTSTRAP_ADMIN_EMAIL=owner@example.com
+   ADMIN_EMAIL=owner@example.com
    ```
-3. Restart the API (`npm run dev:server`). The boot log prints `Bootstrapped administrator from
-   environment`. Promotion only happens while the deployment has **no active administrator**, so the
-   variable is safe to leave in place but is best removed after the first boot.
-4. Sign in as that account and open `/admin`.
+3. Restart the API (`npm run dev:server`) and check the log:
+   - success → `Bootstrapped administrator from environment` (includes `via: "ADMIN_EMAIL"`)
+   - no such account → `Admin bootstrap skipped: no account is registered with the configured administrator email…`
+   - admin already exists → `Admin bootstrap skipped: an active administrator already exists…`
+4. Sign in with that account's **existing** email and password, then open `/admin`.
 
-#### Creating the first administrator (production)
+**Production (Render)**
 
-Register the account on the live site, add `BOOTSTRAP_ADMIN_USERNAME` (or
-`BOOTSTRAP_ADMIN_EMAIL`) to the API service environment (Render → Environment), redeploy/restart
-once, confirm the log line, then remove the variable. No database migration is required: `role`,
-`status` and `tokenVersion` already have defaults, and the audit trail lives in the new `auditlogs`
-collection (created automatically by Mongoose on first write).
+1. Register the intended administrator through the normal signup form if the account does not exist.
+2. Render → the `connectly-api` service → **Environment** → add `ADMIN_EMAIL` with that account's
+   exact email address, then save.
+3. Redeploy / restart the API — the bootstrap runs once at process start (`server/src/index.js`), so a
+   plain restart is enough.
+4. Verify the result in the Render **Logs** (the messages listed above).
+5. Only after a successful promotion, remove the now-obsolete `BOOTSTRAP_ADMIN_USERNAME` /
+   `BOOTSTRAP_ADMIN_EMAIL` variables (they are still supported, but `ADMIN_EMAIL` takes precedence).
+   Keep `ADMIN_EMAIL` if you want it to apply to a future fresh deployment; it will no-op while an
+   administrator exists.
+
+No database migration is required: `role`, `status` and `tokenVersion` already have defaults, and the
+audit trail lives in `auditlogs` (created automatically by Mongoose on first write). Never reset the
+database to set up an administrator.
+
+Legacy variables (optional, still honoured): `BOOTSTRAP_ADMIN_USERNAME` (promotes by username) and
+`BOOTSTRAP_ADMIN_EMAIL`. Precedence: `ADMIN_EMAIL` → `BOOTSTRAP_ADMIN_USERNAME` → `BOOTSTRAP_ADMIN_EMAIL`.
 
 ---
 

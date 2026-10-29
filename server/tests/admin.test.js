@@ -271,3 +271,168 @@ describe('Administrator bootstrap', () => {
     }
   });
 });
+
+describe('ADMIN_EMAIL bootstrap', () => {
+  /** Clears the administrator role from every account so bootstrap can run. */
+  async function clearAdmins() {
+    const all = await ctx.store.listUsersAdmin({ limit: 100, status: 'all' });
+    for (const row of all.users) {
+      if (row.role === 'admin') await ctx.store.updateUser(row._id || row.id, { role: 'user' });
+    }
+  }
+
+  async function withConfig(patch, fn) {
+    const { default: config } = await import('../src/config/env.js');
+    const previous = {
+      email: config.admin.email,
+      bootstrapUsername: config.admin.bootstrapUsername,
+      bootstrapEmail: config.admin.bootstrapEmail
+    };
+    config.admin.email = patch.email ?? '';
+    config.admin.bootstrapUsername = patch.bootstrapUsername ?? '';
+    config.admin.bootstrapEmail = patch.bootstrapEmail ?? '';
+    try {
+      return await fn(config);
+    } finally {
+      config.admin.email = previous.email;
+      config.admin.bootstrapUsername = previous.bootstrapUsername;
+      config.admin.bootstrapEmail = previous.bootstrapEmail;
+      // Always leave a working administrator behind for any later test.
+      await ctx.store.updateUser(admin.user.id, { role: 'admin' });
+    }
+  }
+
+  test('no configured email is a silent no-op', async () => {
+    const { bootstrapAdmin } = await import('../src/services/adminService.js');
+    await withConfig({}, async () => {
+      assert.equal(await bootstrapAdmin(ctx.store), null);
+    });
+  });
+
+  test('promotes only the account registered with ADMIN_EMAIL', async () => {
+    const { bootstrapAdmin } = await import('../src/services/adminService.js');
+    const target = await createAccount(ctx, request, { username: 'email_admin_target' });
+    const bystander = await createAccount(ctx, request, { username: 'email_admin_bystander' });
+    const before = await ctx.store.findUserByUsername('email_admin_target');
+
+    await withConfig({ email: target.email }, async () => {
+      await clearAdmins();
+      const promoted = await bootstrapAdmin(ctx.store);
+      assert.equal(promoted.role, 'admin');
+      assert.equal(promoted._id || promoted.id, target.user.id);
+
+      const stored = await ctx.store.findUserByUsername('email_admin_target');
+      assert.equal(stored.role, 'admin');
+      // Password is never touched and no account is created.
+      assert.equal(stored.passwordHash, before.passwordHash);
+      assert.equal((await ctx.store.findUserByUsername('email_admin_bystander')).role, 'user');
+      assert.equal((await ctx.store.findUserByUsername('email_admin_target')).email, target.email);
+
+      // Idempotent on a second boot.
+      const again = await bootstrapAdmin(ctx.store);
+      assert.equal(again.role, 'admin');
+
+      // The promoted account can log in with its EXISTING password.
+      const login = await request(ctx.url)
+        .post('/api/auth/login')
+        .send({ identifier: target.email, password: STRONG_PASSWORD });
+      assert.equal(login.status, 200);
+      assert.equal(login.body.user.role, 'admin');
+
+      const dashboard = await request(ctx.url)
+        .get('/api/admin/overview')
+        .set('Authorization', `Bearer ${login.body.accessToken}`);
+      assert.equal(dashboard.status, 200);
+
+      // Everyone else is still refused.
+      const normal = await request(ctx.url)
+        .get('/api/admin/overview')
+        .set('Authorization', `Bearer ${(await request(ctx.url).post('/api/auth/login').send({ identifier: 'email_admin_bystander', password: STRONG_PASSWORD })).body.accessToken}`);
+      assert.equal(normal.status, 403);
+    });
+
+    await ctx.store.updateUser(bystander.user.id, { role: 'user' });
+  });
+
+  test('email matching follows the signup normalisation rules', async () => {
+    const { bootstrapAdmin } = await import('../src/services/adminService.js');
+    const target = await createAccount(ctx, request, { username: 'mixed_case_email' });
+
+    await withConfig({ email: `  ${target.email.toUpperCase()}  ` }, async () => {
+      await clearAdmins();
+      const promoted = await bootstrapAdmin(ctx.store);
+      assert.ok(promoted, 'mixed-case / padded ADMIN_EMAIL should still match');
+      assert.equal((await ctx.store.findUserByUsername('mixed_case_email')).role, 'admin');
+    });
+  });
+
+  test('an unknown or malformed ADMIN_EMAIL never creates or promotes anyone', async () => {
+    const { bootstrapAdmin } = await import('../src/services/adminService.js');
+    const totalBefore = (await ctx.store.listUsersAdmin({ limit: 100, status: 'all' })).total;
+
+    await withConfig({ email: 'nobody-registered-at-all@example.com' }, async () => {
+      await clearAdmins();
+      assert.equal(await bootstrapAdmin(ctx.store), null);
+      assert.equal(
+        await ctx.store.findUserByEmail('nobody-registered-at-all@example.com'),
+        null,
+        'bootstrap must never create an account'
+      );
+      assert.equal(await ctx.store.countActiveAdmins(), 0);
+    });
+
+    await withConfig({ email: 'not-an-email' }, async () => {
+      await clearAdmins();
+      assert.equal(await bootstrapAdmin(ctx.store), null);
+      assert.equal(await ctx.store.countActiveAdmins(), 0);
+      // A malformed value is treated like "no target", so the legacy
+      // variables are not silently used instead.
+      assert.equal(await bootstrapAdmin(ctx.store), null);
+    });
+
+    const totalAfter = (await ctx.store.listUsersAdmin({ limit: 100, status: 'all' })).total;
+    assert.equal(totalAfter, totalBefore);
+  });
+
+  test('an existing administrator is neither overwritten nor demoted', async () => {
+    const { bootstrapAdmin } = await import('../src/services/adminService.js');
+    const challenger = await createAccount(ctx, request, { username: 'challenger_account' });
+
+    await ctx.store.updateUser(admin.user.id, { role: 'admin', status: 'active' });
+    await withConfig({ email: challenger.email }, async () => {
+      assert.equal(await bootstrapAdmin(ctx.store), null);
+      assert.equal((await ctx.store.findUserByUsername('challenger_account')).role, 'user');
+      assert.equal((await ctx.store.findUserByUsername('root_admin_spec')).role, 'admin');
+    });
+  });
+
+  test('a suspended account is not promoted', async () => {
+    const { bootstrapAdmin } = await import('../src/services/adminService.js');
+    const victim = await createAccount(ctx, request, { username: 'suspended_target' });
+    await ctx.store.updateUser(victim.user.id, { status: 'suspended' });
+
+    await withConfig({ email: victim.email }, async () => {
+      await clearAdmins();
+      assert.equal(await bootstrapAdmin(ctx.store), null);
+      assert.equal((await ctx.store.findUserByUsername('suspended_target')).role, 'user');
+    });
+
+    await ctx.store.updateUser(victim.user.id, { status: 'active' });
+  });
+
+  test('ADMIN_EMAIL wins over the legacy bootstrap variables', async () => {
+    const { bootstrapAdmin } = await import('../src/services/adminService.js');
+    const wanted = await createAccount(ctx, request, { username: 'wanted_admin' });
+    const legacy = await createAccount(ctx, request, { username: 'legacy_admin' });
+
+    await withConfig({ email: wanted.email, bootstrapUsername: legacy.username }, async () => {
+      await clearAdmins();
+      const promoted = await bootstrapAdmin(ctx.store);
+      assert.equal(promoted._id || promoted.id, wanted.user.id);
+      assert.equal((await ctx.store.findUserByUsername('legacy_admin')).role, 'user');
+    });
+
+    await ctx.store.updateUser(wanted.user.id, { role: 'user' });
+    await ctx.store.updateUser(legacy.user.id, { role: 'user' });
+  });
+});
