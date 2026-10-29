@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Ban, SendHorizontal } from 'lucide-react';
+import { Ban, SendHorizontal, X } from 'lucide-react';
 
 const MAX_LENGTH = 4000;
 
@@ -10,18 +10,22 @@ export function Composer({
   disabledReason,
   onTyping,
   onStopTyping,
-  draft
+  draft,
+  replyTo,
+  onClearReply,
+  editing,
+  onCancelEdit
 }) {
   const [value, setValue] = useState(draft || '');
   const textareaRef = useRef(null);
   const typingTimeout = useRef(null);
   const typingActive = useRef(false);
 
-  // Reset the draft when switching conversations.
   useEffect(() => {
-    setValue(draft || '');
+    setValue(editing?.text || draft || '');
     typingActive.current = false;
-  }, [conversationId]); // eslint-disable-line react-hooks/exhaustive-deps
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }, [conversationId, editing?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => () => clearTimeout(typingTimeout.current), []);
 
@@ -62,7 +66,7 @@ export function Composer({
     if (!text || disabled) return;
     if (text.length > MAX_LENGTH) return;
     onSend(text);
-    setValue('');
+    if (!editing) setValue('');
     stopTyping();
     requestAnimationFrame(() => {
       autoGrow();
@@ -71,6 +75,12 @@ export function Composer({
   }
 
   function handleKeyDown(event) {
+    if (event.key === 'Escape' && (editing || replyTo)) {
+      event.preventDefault();
+      onCancelEdit?.();
+      onClearReply?.();
+      return;
+    }
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
       submit();
@@ -89,9 +99,25 @@ export function Composer({
   }
 
   const remaining = MAX_LENGTH - value.length;
+  const banner = editing
+    ? { title: 'Editing message', body: editing.text, onClear: onCancelEdit }
+    : replyTo
+      ? { title: 'Replying', body: replyTo.text, onClear: onClearReply }
+      : null;
 
   return (
     <div className="composer">
+      {banner ? (
+        <div className="composer__banner">
+          <div>
+            <strong>{banner.title}</strong>
+            <p>{banner.body}</p>
+          </div>
+          <button type="button" className="icon-btn icon-btn--sm" onClick={banner.onClear} aria-label="Cancel">
+            <X size={14} />
+          </button>
+        </div>
+      ) : null}
       <div className="composer__form">
         <label className="sr-only" htmlFor="composer-input">
           Write a message
@@ -103,7 +129,7 @@ export function Composer({
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           onBlur={stopTyping}
-          placeholder="Write a message…"
+          placeholder={editing ? 'Edit your message…' : 'Write a message…'}
           rows={1}
           maxLength={MAX_LENGTH + 200}
           autoComplete="off"
@@ -113,8 +139,8 @@ export function Composer({
           className="composer__send"
           onClick={submit}
           disabled={!value.trim() || value.length > MAX_LENGTH}
-          aria-label="Send message"
-          title="Send message (Enter)"
+          aria-label={editing ? 'Save edit' : 'Send message'}
+          title={editing ? 'Save edit (Enter)' : 'Send message (Enter)'}
         >
           <SendHorizontal size={18} />
         </button>

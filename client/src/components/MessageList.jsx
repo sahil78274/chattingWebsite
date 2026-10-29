@@ -32,7 +32,17 @@ export function MessageList({
   onLoadMore,
   peer,
   viewerId,
-  onRetry
+  onRetry,
+  selectedIds,
+  selectionMode,
+  onToggleSelect,
+  onReply,
+  onEdit,
+  onCopy,
+  onDelete,
+  onReact,
+  onForward,
+  onSelect
 }) {
   const containerRef = useRef(null);
   const bottomRef = useRef(null);
@@ -135,6 +145,16 @@ export function MessageList({
               grouped={grouped}
               showAvatar={!isOut && !grouped}
               onRetry={onRetry}
+              selected={selectedIds?.has(message.id)}
+              selectionMode={selectionMode}
+              onToggleSelect={onToggleSelect}
+              onReply={onReply}
+              onEdit={onEdit}
+              onCopy={onCopy}
+              onDelete={onDelete}
+              onReact={onReact}
+              onForward={onForward}
+              onSelect={onSelect}
             />
           </div>
         );

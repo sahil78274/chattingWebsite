@@ -5,7 +5,12 @@ import { getStore } from '../store/index.js';
 async function resolveUser(token) {
   const payload = verifyAccessToken(token);
   const user = await getStore().findUserById(payload.sub);
-  if (!user) throw ApiError.unauthorized('Account no longer exists', { code: 'ACCOUNT_MISSING' });
+  if (!user || (user.status || 'active') === 'deleted') {
+    throw ApiError.unauthorized('Account no longer exists', { code: 'ACCOUNT_MISSING' });
+  }
+  if ((user.status || 'active') === 'suspended') {
+    throw ApiError.forbidden('This account has been suspended', { code: 'ACCOUNT_SUSPENDED' });
+  }
   if ((user.tokenVersion || 0) !== (payload.tokenVersion || 0)) {
     throw ApiError.unauthorized('Session is no longer valid, please sign in again', {
       code: 'SESSION_REVOKED'
@@ -45,4 +50,20 @@ export async function requireSameUser(req, res, next) {
   return next();
 }
 
-export default { requireAuth, optionalAuth, requireSameUser };
+export async function requireAdmin(req, res, next) {
+  try {
+    if (!req.user) {
+      const token = extractAccessToken(req);
+      if (!token) throw ApiError.unauthorized('Please sign in to continue', { code: 'NO_TOKEN' });
+      req.user = await resolveUser(token);
+    }
+    if ((req.user.role || 'user') !== 'admin' || (req.user.status || 'active') !== 'active') {
+      throw ApiError.forbidden('Administrator access is required', { code: 'ADMIN_ONLY' });
+    }
+    next();
+  } catch (error) {
+    next(error);
+  }
+}
+
+export default { requireAuth, optionalAuth, requireSameUser, requireAdmin };

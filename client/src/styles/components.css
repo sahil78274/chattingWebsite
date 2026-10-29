@@ -77,6 +77,43 @@
 .menu__item--danger:hover { background: var(--danger-soft); }
 .menu__separator { height: 1px; margin: 6px 4px; background: var(--border-subtle); }
 
+.admin-page {
+  min-height: 100dvh; background: var(--bg-app); color: var(--text-primary);
+}
+.admin-page__top {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 16px 20px; border-bottom: 1px solid var(--border-default); background: var(--bg-canvas);
+}
+.admin-page__brand { display: flex; align-items: center; gap: 10px; }
+.admin-page__body { max-width: 1080px; margin: 0 auto; padding: 24px 16px 64px; display: grid; gap: 22px; }
+.admin-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.admin-stat {
+  padding: 14px; border-radius: var(--radius-md); background: var(--bg-canvas);
+  border: 1px solid var(--border-subtle); display: grid; gap: 4px;
+}
+.admin-stat span { font-size: 12px; color: var(--text-muted); }
+.admin-stat strong { font-size: 22px; }
+.admin-panel {
+  padding: 18px; border-radius: var(--radius-lg); background: var(--bg-canvas);
+  border: 1px solid var(--border-subtle); display: grid; gap: 14px;
+}
+.admin-panel__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.admin-filters { display: flex; gap: 8px; flex-wrap: wrap; }
+.admin-filters .input { min-width: 180px; }
+.admin-table-wrap { overflow-x: auto; }
+.admin-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.admin-table th, .admin-table td { padding: 10px 8px; border-bottom: 1px solid var(--border-subtle); text-align: left; vertical-align: middle; }
+.admin-table th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
+.admin-user { display: flex; align-items: center; gap: 8px; }
+.admin-user span { display: grid; }
+.admin-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.audit-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.audit-list li { display: grid; grid-template-columns: 1.4fr 1fr auto; gap: 8px; font-size: 13px; }
+.badge-soft {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px;
+  border-radius: var(--radius-pill); background: var(--accent-soft); color: var(--text-secondary); font-size: 12px;
+}
+
 .toasts {
   position: fixed; bottom: 18px; right: 18px; z-index: 80;
   display: grid; gap: 8px; max-width: min(360px, calc(100vw - 24px));

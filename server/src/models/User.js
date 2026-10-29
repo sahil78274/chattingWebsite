@@ -21,6 +21,8 @@ const AVATAR_COLORS = [
   '#a855f7'
 ];
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
 const userSchema = new Schema(
   {
     _id: { type: String, default: () => newId() },
@@ -39,12 +41,12 @@ const userSchema = new Schema(
       required: true,
       lowercase: true,
       trim: true,
-      match: [/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/, 'Enter a valid email address']
+      match: [EMAIL_PATTERN, 'Enter a valid email address']
     },
     passwordHash: { type: String, required: true, select: false },
     displayName: { type: String, required: true, trim: true, maxlength: DISPLAY_NAME_MAX },
     bio: { type: String, default: '', maxlength: BIO_MAX, trim: true },
-    avatarUrl: { type: String, default: '', maxlength: 500 },
+    avatarUrl: { type: String, default: '', maxlength: 1024 },
     avatarColor: {
       type: String,
       enum: AVATAR_COLORS,
@@ -57,6 +59,8 @@ const userSchema = new Schema(
       online: { type: Boolean, default: false },
       lastSeen: { type: Date, default: () => new Date() }
     },
+    role: { type: String, enum: ['user', 'admin'], default: 'user' },
+    status: { type: String, enum: ['active', 'suspended', 'deleted'], default: 'active' },
     // Incremented on "logout everywhere" / password change to invalidate
     // every previously issued access token.
     tokenVersion: { type: Number, default: 0 }
@@ -72,8 +76,9 @@ const userSchema = new Schema(
 
 userSchema.index({ usernameLower: 1 }, { unique: true, name: 'uniq_username' });
 userSchema.index({ email: 1 }, { unique: true, name: 'uniq_email' });
-// Supports partial (prefix) username search and id lookups without collection scans.
 userSchema.index({ usernameLower: 1, _id: 1 }, { name: 'username_search' });
+userSchema.index({ role: 1, status: 1 }, { name: 'role_status' });
+userSchema.index({ createdAt: -1 }, { name: 'recent_registrations' });
 
 export const AVATAR_COLOR_OPTIONS = AVATAR_COLORS;
 export const User = models.User || model('User', userSchema);

@@ -5,6 +5,7 @@ import '../../models/User.js';
 import '../../models/Conversation.js';
 import '../../models/Message.js';
 import '../../models/tokens.js';
+import '../../models/AuditLog.js';
 
 const MONGO_DUPLICATE_KEY = 11000;
 
@@ -154,6 +155,7 @@ export class MongoStore {
     // not rewritten by Mongoose's production `sanitizeFilter` protection.
     const usernamePrefix = new RegExp(`^${escaped.toLowerCase()}`);
     const filter = excludeId ? { _id: mongoose.trusted({ $ne: String(excludeId) }) } : {};
+    filter.status = 'active';
     if (/^[a-f0-9]{24}$/i.test(trimmed)) {
       filter.$or = [{ _id: lower }, { usernameLower: usernamePrefix }];
     } else {
@@ -277,11 +279,10 @@ export class MongoStore {
     return MongoStore.plain(await mongoose.models.Message.findById(id).lean());
   }
 
-  async listMessages({ conversationId, limit, before, beforeId }) {
+  async listMessages({ conversationId, limit, before, beforeId, viewerId }) {
     const filter = { conversation: conversationId };
+    if (viewerId) filter.deletedFor = { $nin: [viewerId] };
     if (before) {
-      // Compound cursor: everything strictly older, plus older ids that share
-      // the exact boundary millisecond. No message can be skipped or repeated.
       const boundary = new Date(before);
       filter.$or = beforeId
         ? [{ createdAt: { $lt: boundary } }, { createdAt: boundary, _id: { $lt: beforeId } }]
@@ -289,6 +290,13 @@ export class MongoStore {
     }
     const docs = await mongoose.models.Message.find(filter).sort({ createdAt: -1, _id: -1 }).limit(limit).lean();
     return docs.reverse();
+  }
+
+  async updateMessage(id, patch) {
+    return MongoStore.guard(async () => {
+      const doc = await mongoose.models.Message.findByIdAndUpdate(id, { $set: patch }, { new: true }).lean();
+      return MongoStore.plain(doc);
+    });
   }
 
   async updateMessages(filter, patch) {
@@ -323,8 +331,63 @@ export class MongoStore {
     return mongoose.models.Message.countDocuments({
       conversation: conversationId,
       sender: { $ne: userId },
-      readAt: null
+      readAt: null,
+      deletedAt: null,
+      deletedFor: { $nin: [userId] }
     });
+  }
+
+  async listUsersAdmin({ query = '', status = 'all', limit = 20, offset = 0 }) {
+    const filter = {};
+    if (status && status !== 'all') filter.status = status;
+    const trimmed = String(query || '').trim();
+    if (trimmed) {
+      const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const prefix = new RegExp(`^${escaped.toLowerCase()}`);
+      const fuzzy = new RegExp(escaped, 'i');
+      filter.$or = [{ usernameLower: prefix }, { displayName: fuzzy }, { email: trimmed.toLowerCase() }];
+    }
+    const users = await mongoose.models.User.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(offset)
+      .limit(limit)
+      .lean({ virtuals: true });
+    const total = await mongoose.models.User.countDocuments(filter);
+    return { users: users.map((u) => ({ ...u, id: u._id })), total };
+  }
+
+  async countUsersByStatus() {
+    const [total, active, suspended, admins] = await Promise.all([
+      mongoose.models.User.countDocuments({ status: { $ne: 'deleted' } }),
+      mongoose.models.User.countDocuments({ status: 'active' }),
+      mongoose.models.User.countDocuments({ status: 'suspended' }),
+      mongoose.models.User.countDocuments({ role: 'admin', status: 'active' })
+    ]);
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const recent = await mongoose.models.User.countDocuments({
+      createdAt: { $gte: since },
+      status: { $ne: 'deleted' }
+    });
+    return { total, active, suspended, admins, recent };
+  }
+
+  async countActiveAdmins() {
+    return mongoose.models.User.countDocuments({ role: 'admin', status: 'active' });
+  }
+
+  async createAuditLog(data) {
+    const doc = await mongoose.models.AuditLog.create(data);
+    return MongoStore.plain(doc);
+  }
+
+  async listAuditLogs({ limit = 30, offset = 0 }) {
+    const rows = await mongoose.models.AuditLog.find({})
+      .sort({ createdAt: -1 })
+      .skip(offset)
+      .limit(limit)
+      .lean();
+    const total = await mongoose.models.AuditLog.countDocuments({});
+    return { logs: MongoStore.many(rows), total };
   }
 
   // ---------------------------------------------------------------- blocks

@@ -9,7 +9,9 @@ import { optionalAuth } from './middleware/auth.js';
 import authRoutes from './routes/authRoutes.js';
 import userRoutes from './routes/userRoutes.js';
 import conversationRoutes from './routes/conversationRoutes.js';
+import adminRoutes from './routes/adminRoutes.js';
 import { getConfig } from './controllers/userController.js';
+import { readAvatar } from './services/media.js';
 import logger from './utils/logger.js';
 
 export function createApp() {
@@ -53,14 +55,24 @@ export function createApp() {
   app.use(cookieParser());
   app.use(optionalAuth);
 
+  app.use('/uploads', (req, res, next) => {
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+    const id = decodeURIComponent(String(req.path || '').replace(/^\//, ''));
+    if (!id || id.includes('/') || id.includes('\\')) return next();
+    readAvatar(id)
+      .then((file) => {
+        if (!file) return next();
+        res.setHeader('Content-Type', file.mimeType);
+        if (req.method === 'HEAD') return res.end();
+        return res.end(file.buffer);
+      })
+      .catch(next);
+  });
   app.use(
     '/uploads',
-    (req, res, next) => {
-      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-      res.setHeader('Cache-Control', 'public, max-age=86400');
-      next();
-    },
-    express.static(config.uploads.dir, { maxAge: '1d', index: false })
+    express.static(config.uploads.dir, { maxAge: '1d', index: false, fallthrough: true })
   );
 
   app.get('/api/health', (req, res) => {
@@ -76,6 +88,7 @@ export function createApp() {
   app.use('/api/auth', authRoutes);
   app.use('/api/users', userRoutes);
   app.use('/api/conversations', conversationRoutes);
+  app.use('/api/admin', adminRoutes);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

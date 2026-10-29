@@ -29,7 +29,7 @@ import {
   setRefreshCookie
 } from '../utils/tokens.js';
 import { mailConfigured, sendPasswordResetEmail } from '../utils/mailer.js';
-import { removeUploadedFile } from '../middleware/upload.js';
+import { saveAvatar } from '../services/media.js';
 import logger from '../utils/logger.js';
 
 function meta(req) {
@@ -103,8 +103,12 @@ export async function updateProfile(req, res) {
   if (data.bio !== undefined) patch.bio = sanitizeText(data.bio);
   if (data.avatarUrl !== undefined) {
     // Only allow clearing the picture or pointing at our own upload endpoint.
-    if (data.avatarUrl && !data.avatarUrl.startsWith(`${config.uploads.publicPath}/`)) {
-      throw ApiError.badRequest('Invalid avatar URL', { code: 'INVALID_AVATAR' });
+    if (data.avatarUrl) {
+      const fromUploads = data.avatarUrl.startsWith(`${config.uploads.publicPath}/`);
+      const fromS3 = Boolean(config.s3.publicBaseUrl) && data.avatarUrl.startsWith(config.s3.publicBaseUrl);
+      if (!fromUploads && !fromS3) {
+        throw ApiError.badRequest('Invalid avatar URL', { code: 'INVALID_AVATAR' });
+      }
     }
     patch.avatarUrl = data.avatarUrl;
   }
@@ -116,13 +120,15 @@ export async function updateProfile(req, res) {
 
 export async function uploadAvatar(req, res, next) {
   try {
-    if (!req.file) throw ApiError.badRequest('Please choose an image to upload', { code: 'NO_FILE' });
-    const url = `${config.uploads.publicPath}/${req.file.filename}`;
-    const store = getStore();
-    const updated = await store.updateUser(req.user._id, { avatarUrl: url });
-    res.status(201).json({ user: selfUser(updated), avatarUrl: url });
+    if (!req.file?.buffer) throw ApiError.badRequest('Please choose an image to upload', { code: 'NO_FILE' });
+    const stored = await saveAvatar({
+      buffer: req.file.buffer,
+      mimeType: req.file.mimetype,
+      userId: req.user._id
+    });
+    const updated = await getStore().updateUser(req.user._id, { avatarUrl: stored.url });
+    res.status(201).json({ user: selfUser(updated), avatarUrl: stored.url });
   } catch (error) {
-    removeUploadedFile(req.file);
     next(error);
   }
 }

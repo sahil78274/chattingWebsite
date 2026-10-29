@@ -210,7 +210,7 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
   }, []);
 
   const sendMessage = useCallback(
-    async (text) => {
+    async (text, { replyToId, replyTo } = {}) => {
       const conversationId = activeIdRef.current;
       if (!conversationId) return;
       const clientId = crypto.randomUUID();
@@ -223,7 +223,8 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
         createdAt: new Date().toISOString(),
         pending: true,
         deliveredAt: null,
-        readAt: null
+        readAt: null,
+        replyTo: replyTo || (replyToId ? { id: replyToId, text: '', senderId: null } : null)
       };
       updateMessagesFor(conversationId, (current) => [...current, optimistic]);
       applyConversationPreview(conversationId, optimistic, { incrementUnread: false });
@@ -231,8 +232,8 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
       try {
         const socket = socketRef.current;
         const result = socket?.connected
-          ? await emitAck(socket, 'message:send', { conversationId, text, clientId })
-          : await api.sendMessage(conversationId, { text, clientId });
+          ? await emitAck(socket, 'message:send', { conversationId, text, clientId, replyToId })
+          : await api.sendMessage(conversationId, { text, clientId, replyToId });
         if (!result?.message) {
           throw new Error('The server did not return the saved message');
         }
@@ -356,6 +357,95 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
     if (!conversationId || !socketRef.current?.connected) return;
     socketRef.current.emit('typing:stop', { conversationId });
   }, []);
+
+  const editMessage = useCallback(
+    async (message, text) => {
+      const conversationId = message.conversationId || activeIdRef.current;
+      if (!conversationId || !message?.id) return;
+      updateMessagesFor(conversationId, (current) =>
+        current.map((item) => (item.id === message.id ? { ...item, text, editedAt: new Date().toISOString() } : item))
+      );
+      try {
+        const socket = socketRef.current;
+        const result = socket?.connected
+          ? await emitAck(socket, 'message:edit', { conversationId, messageId: message.id, text })
+          : await api.editMessage(conversationId, message.id, text);
+        if (result?.message) {
+          updateMessagesFor(conversationId, (current) => mergeServerMessage(current, result.message));
+        }
+      } catch (error) {
+        notify.error(error.message || 'Could not edit that message');
+      }
+    },
+    [notify, updateMessagesFor]
+  );
+
+  const deleteMessage = useCallback(
+    async (message, scope = 'me') => {
+      const conversationId = message.conversationId || activeIdRef.current;
+      if (!conversationId || !message?.id) return;
+      try {
+        const socket = socketRef.current;
+        const result = socket?.connected
+          ? await emitAck(socket, 'message:delete', { conversationId, messageId: message.id, scope })
+          : await api.deleteMessage(conversationId, message.id, scope);
+        if (scope === 'me') {
+          updateMessagesFor(conversationId, (current) => current.filter((item) => item.id !== message.id));
+        } else if (result?.message) {
+          updateMessagesFor(conversationId, (current) => mergeServerMessage(current, result.message));
+        }
+      } catch (error) {
+        notify.error(error.message || 'Could not delete that message');
+      }
+    },
+    [notify, updateMessagesFor]
+  );
+
+  const reactToMessage = useCallback(
+    async (message, emoji) => {
+      const conversationId = message.conversationId || activeIdRef.current;
+      if (!conversationId || !message?.id) return;
+      try {
+        const socket = socketRef.current;
+        const result = socket?.connected
+          ? await emitAck(socket, 'message:react', { conversationId, messageId: message.id, emoji })
+          : await api.reactToMessage(conversationId, message.id, emoji);
+        if (result?.message) {
+          updateMessagesFor(conversationId, (current) => mergeServerMessage(current, result.message));
+        }
+      } catch (error) {
+        notify.error(error.message || 'Could not add that reaction');
+      }
+    },
+    [notify, updateMessagesFor]
+  );
+
+  const forwardMessage = useCallback(
+    async (message, targetConversationId) => {
+      const conversationId = message.conversationId || activeIdRef.current;
+      if (!conversationId || !message?.id || !targetConversationId) return;
+      const clientId = crypto.randomUUID();
+      try {
+        const socket = socketRef.current;
+        const result = socket?.connected
+          ? await emitAck(socket, 'message:forward', {
+              conversationId,
+              messageId: message.id,
+              targetConversationId,
+              clientId
+            })
+          : await api.forwardMessage(conversationId, message.id, targetConversationId, clientId);
+        if (result?.message) {
+          updateMessagesFor(targetConversationId, (current) => mergeServerMessage(current, result.message));
+          applyConversationPreview(targetConversationId, result.message, { incrementUnread: false });
+        }
+        notify.success('Message forwarded');
+      } catch (error) {
+        notify.error(error.message || 'Could not forward that message');
+      }
+    },
+    [applyConversationPreview, notify, updateMessagesFor]
+  );
 
   useEffect(() => {
     if (!userId) return undefined;
@@ -523,6 +613,20 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
       );
     };
 
+    const onMessageUpdated = ({ conversationId, message }) => {
+      if (!message || !conversationId) return;
+      const reactions = (message.reactions || []).map((reaction) => ({
+        ...reaction,
+        reacted: Boolean(userId && (reaction.userIds || []).includes(userId))
+      }));
+      updateMessagesFor(conversationId, (current) => mergeServerMessage(current, { ...message, reactions }));
+    };
+
+    const onMessageRemoved = ({ conversationId, messageId }) => {
+      if (!conversationId || !messageId) return;
+      updateMessagesFor(conversationId, (current) => current.filter((item) => item.id !== messageId));
+    };
+
     const onBlockChanged = ({ userId: peerId, blocked, byMe }) => {
       setConversations((current) =>
         current.map((conversation) =>
@@ -548,6 +652,8 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
     socket.on('receipt:delivered', onDeliveredReceipt);
     socket.on('conversation:unread', onUnread);
     socket.on('block:changed', onBlockChanged);
+    socket.on('message:updated', onMessageUpdated);
+    socket.on('message:removed', onMessageRemoved);
 
     setConnectionState('connecting');
     socket.connect();
@@ -603,7 +709,11 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
       setConversationBlockState,
       markRead,
       notifyTyping,
-      notifyStopTyping
+      notifyStopTyping,
+      editMessage,
+      deleteMessage,
+      reactToMessage,
+      forwardMessage
     }
   };
 }

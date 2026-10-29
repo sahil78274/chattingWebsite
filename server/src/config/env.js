@@ -40,6 +40,9 @@ if (isProd) {
   if (!accessSecret) missing.push('JWT_ACCESS_SECRET');
   if (!refreshSecret) missing.push('JWT_REFRESH_SECRET');
   if (dbDriver === 'mongo' && !rawMongoUri) missing.push('MONGODB_URI');
+  if (dbDriver !== 'mongo' && !bool(process.env.ALLOW_MEMORY_STORE, false)) {
+    missing.push('MONGODB_URI (memory store is not allowed in production unless ALLOW_MEMORY_STORE=true)');
+  }
   if (missing.length) {
     // Fail fast instead of booting with insecure defaults.
     throw new Error(`Missing required production environment variables: ${missing.join(', ')}`);
@@ -107,7 +110,20 @@ export const config = {
     }
   },
   appUrl: process.env.APP_URL || 'http://localhost:5173',
-  trustProxy: int(process.env.TRUST_PROXY, isProd ? 1 : 0)
+  trustProxy: int(process.env.TRUST_PROXY, isProd ? 1 : 0),
+  admin: {
+    bootstrapUsername: process.env.BOOTSTRAP_ADMIN_USERNAME || '',
+    bootstrapEmail: process.env.BOOTSTRAP_ADMIN_EMAIL || ''
+  },
+  s3: {
+    bucket: process.env.S3_BUCKET || '',
+    accessKey: process.env.S3_ACCESS_KEY_ID || '',
+    secretKey: process.env.S3_SECRET_ACCESS_KEY || '',
+    region: process.env.S3_REGION || 'auto',
+    endpoint: process.env.S3_ENDPOINT || '',
+    publicBaseUrl: (process.env.S3_PUBLIC_BASE_URL || '').replace(/\/+$/, '')
+  },
+  allowMemoryStore: bool(process.env.ALLOW_MEMORY_STORE, false)
 };
 
 export default config;

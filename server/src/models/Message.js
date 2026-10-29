@@ -5,6 +5,25 @@ const { Schema, model, models } = mongoose;
 
 export const MESSAGE_MAX_LENGTH = 4000;
 export const MESSAGE_MIN_LENGTH = 1;
+export const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '🎉', '👏', '💯'];
+
+const reactionSchema = new Schema(
+  {
+    emoji: { type: String, required: true, maxlength: 16 },
+    user: { type: String, required: true },
+    createdAt: { type: Date, default: () => new Date() }
+  },
+  { _id: false }
+);
+
+const replyToSchema = new Schema(
+  {
+    id: { type: String, required: true },
+    senderId: { type: String, required: true },
+    text: { type: String, default: '', maxlength: 160 }
+  },
+  { _id: false }
+);
 
 const messageSchema = new Schema(
   {
@@ -15,22 +34,23 @@ const messageSchema = new Schema(
       type: String,
       required: true,
       trim: true,
-      minlength: MESSAGE_MIN_LENGTH,
+      minlength: 0,
       maxlength: MESSAGE_MAX_LENGTH
     },
-    // Client supplied idempotency key. Retries / reconnects reuse the same key so
-    // the unique index below prevents duplicate messages.
     clientId: { type: String, default: null, maxlength: 80 },
     deliveredAt: { type: Date, default: null },
     readAt: { type: Date, default: null },
-    editedAt: { type: Date, default: null }
+    editedAt: { type: Date, default: null },
+    deletedAt: { type: Date, default: null },
+    deletedBy: { type: String, default: null },
+    deletedFor: { type: [String], default: [] },
+    replyTo: { type: replyToSchema, default: null },
+    reactions: { type: [reactionSchema], default: [] }
   },
   { timestamps: { createdAt: true, updatedAt: false }, versionKey: false, collection: 'messages' }
 );
 
-// Chat history pagination (newest first) inside one conversation.
 messageSchema.index({ conversation: 1, createdAt: -1 }, { name: 'conversation_recent' });
-// Idempotency guard for retried sends from the same sender.
 messageSchema.index(
   { conversation: 1, sender: 1, clientId: 1 },
   {
@@ -45,11 +65,15 @@ messageSchema.methods.toJSONSafe = function toJSONSafe() {
     id: this._id,
     conversationId: this.conversation,
     senderId: this.sender,
-    text: this.text,
+    text: this.deletedAt ? '' : this.text,
     clientId: this.clientId || null,
     createdAt: this.createdAt,
     deliveredAt: this.deliveredAt || null,
-    readAt: this.readAt || null
+    readAt: this.readAt || null,
+    editedAt: this.editedAt || null,
+    deletedAt: this.deletedAt || null,
+    replyTo: this.replyTo || null,
+    reactions: this.reactions || []
   };
 };
 

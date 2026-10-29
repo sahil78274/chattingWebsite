@@ -4,8 +4,11 @@ import {
   MessageSquarePlus,
   Search,
   Settings,
+  Shield,
+  Trash2,
   X
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { Brand } from '../components/Brand.jsx';
 import { Avatar } from '../components/Avatar.jsx';
 import { SearchResults } from '../components/SearchPanel.jsx';
@@ -19,6 +22,7 @@ import { EditProfileModal } from '../components/EditProfileModal.jsx';
 import { SettingsModal } from '../components/SettingsModal.jsx';
 import { ReportModal } from '../components/ReportModal.jsx';
 import { ConfirmDialog } from '../components/ConfirmDialog.jsx';
+import { ForwardModal } from '../components/ForwardModal.jsx';
 import { ThemeToggle } from '../components/ThemeToggle.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
@@ -45,6 +49,12 @@ export function ChatPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [reportTarget, setReportTarget] = useState(null);
   const [confirmState, setConfirmState] = useState(null);
+  const [replyTo, setReplyTo] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const [forwarding, setForwarding] = useState(null);
+  const [threadQuery, setThreadQuery] = useState('');
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [selectionMode, setSelectionMode] = useState(false);
 
   const notificationSupported = typeof window !== 'undefined' && 'Notification' in window;
   const [notificationsEnabled, setNotificationsEnabled] = useState(() => {
@@ -165,6 +175,11 @@ export function ChatPage() {
   const selectConversation = useCallback(
     (conversationId) => {
       actions.openConversation(conversationId);
+      setReplyTo(null);
+      setEditing(null);
+      setThreadQuery('');
+      setSelectedIds(new Set());
+      setSelectionMode(false);
       const url = new URL(window.location.href);
       url.searchParams.set('c', conversationId);
       window.history.replaceState({}, '', url);
@@ -331,6 +346,11 @@ export function ChatPage() {
           <Brand />
           <div className="sidebar__actions">
             <ThemeToggle />
+            {user.role === 'admin' ? (
+              <Link to="/app/admin" className="icon-btn" title="Admin dashboard" aria-label="Open admin dashboard">
+                <Shield size={18} />
+              </Link>
+            ) : null}
             <button
               type="button"
               className="icon-btn"
@@ -456,6 +476,8 @@ export function ChatPage() {
               onToggleMute={() => active && toggleMuteConversation(active.id)}
               soundEnabled={soundEnabled}
               onToggleSound={toggleSound}
+              searchQuery={threadQuery}
+              onSearchChange={setThreadQuery}
             />
 
             {workspace.messagesError ? (
@@ -464,7 +486,15 @@ export function ChatPage() {
               </div>
             ) : (
               <MessageList
-                messages={workspace.messages}
+                messages={
+                  threadQuery.trim()
+                    ? workspace.messages.filter((message) =>
+                        String(message.text || '')
+                          .toLowerCase()
+                          .includes(threadQuery.trim().toLowerCase())
+                      )
+                    : workspace.messages
+                }
                 loading={workspace.messagesLoading}
                 hasMore={workspace.hasMore}
                 loadingMore={workspace.loadingMore}
@@ -472,16 +502,107 @@ export function ChatPage() {
                 peer={peer}
                 viewerId={user.id}
                 onRetry={actions.retryMessage}
+                selectedIds={selectedIds}
+                selectionMode={selectionMode}
+                onToggleSelect={(message) => {
+                  setSelectedIds((current) => {
+                    const next = new Set(current);
+                    if (next.has(message.id)) next.delete(message.id);
+                    else next.add(message.id);
+                    return next;
+                  });
+                }}
+                onReply={(message) => {
+                  setEditing(null);
+                  setReplyTo(message);
+                }}
+                onEdit={(message) => {
+                  setReplyTo(null);
+                  setEditing(message);
+                }}
+                onCopy={async (message) => {
+                  try {
+                    await navigator.clipboard.writeText(message.text || '');
+                    notify.success('Copied');
+                  } catch {
+                    notify.error('Could not copy that message');
+                  }
+                }}
+                onDelete={(message, scope) => {
+                  setConfirmState({
+                    title: scope === 'everyone' ? 'Delete for everyone?' : 'Delete for you?',
+                    message:
+                      scope === 'everyone'
+                        ? 'This removes the message from both sides of the conversation.'
+                        : 'The message will disappear from your history. The other person still has their copy.',
+                    confirmLabel: 'Delete',
+                    onConfirm: () => actions.deleteMessage(message, scope)
+                  });
+                }}
+                onReact={(message, emoji) => actions.reactToMessage(message, emoji)}
+                onForward={(message) => setForwarding(message)}
+                onSelect={(message) => {
+                  setSelectionMode(true);
+                  setSelectedIds(new Set([message.id]));
+                }}
               />
             )}
 
+            {selectionMode ? (
+              <div className="selection-bar">
+                <span>{selectedIds.size} selected</span>
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  onClick={() => {
+                    for (const id of selectedIds) {
+                      const message = workspace.messages.find((item) => item.id === id);
+                      if (message) actions.deleteMessage(message, 'me');
+                    }
+                    setSelectedIds(new Set());
+                    setSelectionMode(false);
+                  }}
+                  disabled={!selectedIds.size}
+                >
+                  <Trash2 size={14} /> Delete for me
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  onClick={() => {
+                    setSelectedIds(new Set());
+                    setSelectionMode(false);
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : null}
+
             <Composer
               conversationId={active.id}
-              onSend={(text) => actions.sendMessage(text)}
+              onSend={(text) => {
+                if (editing) {
+                  actions.editMessage(editing, text);
+                  setEditing(null);
+                  return;
+                }
+                actions.sendMessage(text, {
+                  replyToId: replyTo?.id,
+                  replyTo: replyTo
+                    ? { id: replyTo.id, senderId: replyTo.senderId, text: replyTo.text }
+                    : null
+                });
+                setReplyTo(null);
+              }}
               disabled={composerDisabled}
               disabledReason={disabledReason}
               onTyping={actions.notifyTyping}
               onStopTyping={actions.notifyStopTyping}
+              replyTo={replyTo}
+              onClearReply={() => setReplyTo(null)}
+              editing={editing}
+              onCancelEdit={() => setEditing(null)}
             />
           </>
         )}
@@ -524,6 +645,18 @@ export function ChatPage() {
           user={reportTarget}
           conversationId={conversationForHeader?.id}
           onClose={() => setReportTarget(null)}
+        />
+      ) : null}
+
+      {forwarding ? (
+        <ForwardModal
+          conversations={workspace.conversations}
+          currentId={active?.id}
+          onClose={() => setForwarding(null)}
+          onChoose={(conversation) => {
+            actions.forwardMessage(forwarding, conversation.id);
+            setForwarding(null);
+          }}
         />
       ) : null}
 

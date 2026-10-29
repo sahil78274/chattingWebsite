@@ -15,6 +15,7 @@ import { RegisterPage } from '../src/pages/RegisterPage.jsx';
 import { ForgotPasswordPage } from '../src/pages/ForgotPasswordPage.jsx';
 import { ResetPasswordPage } from '../src/pages/ResetPasswordPage.jsx';
 import { ChatPage } from '../src/pages/ChatPage.jsx';
+import { AdminPage } from '../src/pages/AdminPage.jsx';
 import { NotFoundPage } from '../src/pages/NotFoundPage.jsx';
 
 const user = {
@@ -29,7 +30,9 @@ const user = {
   lastSeen: new Date().toISOString(),
   createdAt: new Date().toISOString(),
   email: 'aarav@example.com',
-  privacy: { lastSeen: 'everyone' }
+  privacy: { lastSeen: 'everyone' },
+  role: 'admin',
+  status: 'active'
 };
 
 const authValue = {
@@ -89,6 +92,24 @@ try {
 } catch (error) {
   failures += 1;
   console.log(`FAIL  ChatPage: ${error.message}`);
+}
+
+try {
+  const html = renderToString(
+    <ThemeProvider>
+      <ToastProvider>
+        <AuthContext.Provider value={authValue}>
+          <MemoryRouter>
+            <AdminPage />
+          </MemoryRouter>
+        </AuthContext.Provider>
+      </ToastProvider>
+    </ThemeProvider>
+  );
+  console.log(`PASS  AdminPage rendered (${html.length} chars)`);
+} catch (error) {
+  failures += 1;
+  console.log(`FAIL  AdminPage: ${error.message}`);
 }
 
 if (failures > 0) {

@@ -59,6 +59,7 @@ export function mergeMessageRecord(local, incoming) {
   const deliveredAt = preferTimestamp(local.deliveredAt, incoming.deliveredAt);
   const delivered = readAt ? deliveredAt || readAt : deliveredAt;
 
+  const deleted = Boolean(incoming.deletedAt || incoming.deleted || local.deletedAt || local.deleted);
   return {
     ...local,
     ...incoming,
@@ -66,10 +67,16 @@ export function mergeMessageRecord(local, incoming) {
     clientId: incoming.clientId || local.clientId || null,
     conversationId: incoming.conversationId || local.conversationId || conversationIdOf(incoming) || conversationIdOf(local),
     senderId: incoming.senderId || local.senderId || senderIdOf(incoming) || senderIdOf(local),
+    text: deleted ? '' : incoming.text ?? local.text,
     pending: false,
     failed: false,
     deliveredAt: delivered || null,
-    readAt: readAt || null
+    readAt: readAt || null,
+    editedAt: incoming.editedAt || local.editedAt || null,
+    deletedAt: incoming.deletedAt || local.deletedAt || null,
+    deleted,
+    replyTo: incoming.replyTo !== undefined ? incoming.replyTo : local.replyTo || null,
+    reactions: incoming.reactions || local.reactions || []
   };
 }
 
