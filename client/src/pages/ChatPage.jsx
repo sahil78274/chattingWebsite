@@ -481,10 +481,10 @@ export function ChatPage() {
             />
 
             {workspace.messagesError ? (
-              <div style={{ padding: 16 }}>
+              <div style={{ padding: '12px 16px 0' }}>
                 <div className="alert alert--error">{workspace.messagesError}</div>
               </div>
-            ) : (
+            ) : null}
               <MessageList
                 messages={
                   threadQuery.trim()
@@ -546,7 +546,6 @@ export function ChatPage() {
                   setSelectedIds(new Set([message.id]));
                 }}
               />
-            )}
 
             {selectionMode ? (
               <div className="selection-bar">

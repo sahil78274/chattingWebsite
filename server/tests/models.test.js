@@ -4,7 +4,8 @@ import { User, AVATAR_COLOR_OPTIONS } from '../src/models/User.js';
 import { Conversation } from '../src/models/Conversation.js';
 import { Message } from '../src/models/Message.js';
 import { RefreshToken, PasswordResetToken, Block, Report } from '../src/models/tokens.js';
-import { newId, isId, pairKeyFor } from '../src/utils/ids.js';
+import { newId, isId, idsEqual, normalizeId, pairKeyFor } from '../src/utils/ids.js';
+import { conversationSummary } from '../src/utils/serialize.js';
 
 /**
  * These tests validate the Mongoose schemas and index definitions without a
@@ -35,6 +36,47 @@ describe('Identifier helpers', () => {
     const b = 'bbbbbbbbbbbbbbbbbbbbbbbb';
     assert.equal(pairKeyFor(a, b), pairKeyFor(b, a));
     assert.notEqual(pairKeyFor(a, b), pairKeyFor(a, a));
+  });
+
+  test('normalizeId stringifies ObjectId-like values and rejects junk objects', () => {
+    const hex = 'a'.repeat(24);
+    assert.equal(normalizeId(hex), hex);
+    assert.equal(normalizeId(` ${hex} `), hex);
+    assert.equal(normalizeId({ toHexString: () => hex }), hex);
+    assert.equal(normalizeId({ $oid: hex }), hex);
+    assert.equal(normalizeId({ _id: hex }), hex);
+    assert.equal(normalizeId({}), '');
+    assert.equal(idsEqual({ toHexString: () => hex }, hex), true);
+    assert.equal(idsEqual(hex, 'b'.repeat(24)), false);
+  });
+});
+
+describe('conversationSummary', () => {
+  test('always emits a string conversation id even when _id is ObjectId-like', () => {
+    const hex = 'c'.repeat(24);
+    const viewer = 'd'.repeat(24);
+    const peer = 'e'.repeat(24);
+    const summary = conversationSummary(
+      {
+        _id: { toHexString: () => hex, toString: () => '[object Object]' },
+        type: 'direct',
+        participants: [
+          { user: viewer, unreadCount: 2 },
+          { user: peer, unreadCount: 0 }
+        ],
+        lastMessage: { messageId: 'm', text: 'hi', senderId: peer, createdAt: new Date() },
+        lastMessageAt: new Date(),
+        createdAt: new Date()
+      },
+      {
+        viewerId: viewer,
+        otherUser: { _id: peer, username: 'bob', displayName: 'Bob' }
+      }
+    );
+    assert.equal(summary.id, hex);
+    assert.equal(typeof summary.id, 'string');
+    assert.equal(summary.unreadCount, 2);
+    assert.equal(summary.peer.id, peer);
   });
 });
 

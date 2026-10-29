@@ -1,5 +1,6 @@
 import { MessageSquareDashed } from 'lucide-react';
 import { ConversationItem } from './ConversationItem.jsx';
+import { idsEqual } from '../lib/messages.js';
 
 export function ConversationSkeleton() {
   return (
@@ -51,10 +52,10 @@ export function ConversationList({
     <>
       {conversations.map((conversation) => (
         <ConversationItem
-          key={conversation.id}
+          key={conversation.id || conversation._id}
           conversation={conversation}
-          isActive={conversation.id === activeId}
-          isTyping={Boolean(typingByConversation[conversation.id])}
+          isActive={idsEqual(conversation.id || conversation._id, activeId)}
+          isTyping={Boolean(typingByConversation[conversation.id || conversation._id])}
           viewerId={viewerId}
           onSelect={onSelect}
         />

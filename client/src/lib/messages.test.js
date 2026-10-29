@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   applyConversationReceipt,
+  conversationKey,
   findMessageIndex,
+  isId,
   mergeMessageRecord,
   mergeServerMessage,
   messageStatus,
@@ -129,4 +131,16 @@ test('status helper reports pending, sent, delivered and read in order', () => {
     'read'
   );
   assert.equal(messageStatus(msg({ failed: true })), 'failed');
+});
+
+test('conversationKey reads id, _id or $oid and rejects objects without an id', () => {
+  const hex = 'a'.repeat(24);
+  assert.equal(conversationKey(hex), hex);
+  assert.equal(conversationKey({ id: hex }), hex);
+  assert.equal(conversationKey({ _id: hex }), hex);
+  assert.equal(conversationKey({ $oid: hex }), hex);
+  assert.equal(conversationKey({}), '');
+  assert.equal(isId(hex), true);
+  assert.equal(isId('z'.repeat(24)), false);
+  assert.equal(isId('not-an-id'), false);
 });

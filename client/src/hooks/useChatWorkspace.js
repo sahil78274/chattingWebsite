@@ -3,7 +3,9 @@ import { api, getAccessToken } from '../services/api.js';
 import { createSocket } from '../services/socket.js';
 import {
   applyConversationReceipt,
+  conversationKey,
   idsEqual,
+  isId,
   mergeServerMessage,
   reconcileMessages
 } from '../lib/messages.js';
@@ -119,22 +121,32 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
 
   const openConversation = useCallback(
     async (conversationId) => {
+      const id = conversationKey(conversationId);
       const requestId = openRequestRef.current + 1;
       openRequestRef.current = requestId;
       const previous = activeIdRef.current;
-      if (previous && !idsEqual(previous, conversationId)) {
+      if (previous && !idsEqual(previous, id)) {
         cacheRef.current.set(previous, messagesRef.current);
       }
 
-      setActiveId(conversationId);
-      activeIdRef.current = conversationId;
+      if (!isId(id)) {
+        setActiveId(null);
+        activeIdRef.current = null;
+        setMessages([]);
+        setMessagesLoading(false);
+        setMessagesError('Invalid identifier');
+        return;
+      }
+
+      setActiveId(id);
+      activeIdRef.current = id;
       setMessagesError('');
 
-      const cached = cacheRef.current.get(conversationId);
+      const cached = cacheRef.current.get(id);
       if (cached?.length) {
         setMessages(cached);
         setMessagesLoading(false);
-      } else if (!idsEqual(previous, conversationId)) {
+      } else if (!idsEqual(previous, id)) {
         setMessages([]);
         setMessagesLoading(true);
       } else {
@@ -142,17 +154,17 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
       }
 
       try {
-        const data = await api.listMessages(conversationId, { limit: PAGE_SIZE });
+        const data = await api.listMessages(id, { limit: PAGE_SIZE });
         if (openRequestRef.current !== requestId) return;
         setMessages((current) => {
-          const next = reconcileMessages(current, data.messages, conversationId);
-          cacheRef.current.set(conversationId, next);
+          const next = reconcileMessages(current, data.messages, id);
+          cacheRef.current.set(id, next);
           return next;
         });
         setHasMore(data.hasMore);
         setCursor(data.hasMore ? { before: data.nextCursor, beforeId: data.nextCursorId } : null);
-        socketRef.current?.emit('conversation:join', { conversationId }, () => {});
-        markRead(conversationId);
+        socketRef.current?.emit('conversation:join', { conversationId: id }, () => {});
+        markRead(id);
       } catch (error) {
         if (openRequestRef.current !== requestId) return;
         setMessagesError(error.message || 'Could not load this conversation');
@@ -295,7 +307,7 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
         }
         return [conversation, ...current];
       });
-      await openConversation(conversation.id);
+      await openConversation(conversationKey(conversation));
       return conversation;
     },
     [openConversation]

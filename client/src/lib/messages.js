@@ -11,6 +11,23 @@ export function idsEqual(a, b) {
   return String(a) === String(b);
 }
 
+export function isId(value) {
+  return typeof value === 'string' && /^[a-f0-9]{24}$/i.test(value);
+}
+
+/** Accept a conversation object, `{ id }`, `{ _id }`, or a raw id string. */
+export function conversationKey(value) {
+  if (value == null) return '';
+  if (typeof value === 'string' || typeof value === 'number') return String(value).trim();
+  if (typeof value === 'object') {
+    if (typeof value.$oid === 'string') return value.$oid.trim();
+    const nested = value.id || value._id;
+    if (nested && nested !== value) return conversationKey(nested);
+  }
+  const asString = String(value);
+  return asString === '[object Object]' ? '' : asString;
+}
+
 export function toMillis(value) {
   if (!value) return 0;
   const time = new Date(value).getTime();

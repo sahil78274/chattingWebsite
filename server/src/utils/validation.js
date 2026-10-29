@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { USERNAME_MAX, USERNAME_MIN, DISPLAY_NAME_MAX, BIO_MAX } from '../models/User.js';
 import { MESSAGE_MAX_LENGTH } from '../models/Message.js';
+import { isId, normalizeId } from './ids.js';
 
 const RESERVED_USERNAMES = new Set([
   'admin',
@@ -114,7 +115,11 @@ export const sendMessageSchema = z.object({
     .max(MESSAGE_MAX_LENGTH, `Message must be at most ${MESSAGE_MAX_LENGTH} characters`)
     .refine((value) => value.trim().length > 0, 'Message cannot be empty'),
   clientId: z.string().trim().max(80).optional(),
-  replyToId: z.string().trim().length(24).optional()
+  replyToId: z
+    .string()
+    .trim()
+    .regex(/^[a-f0-9]{24}$/i, 'Invalid identifier')
+    .optional()
 });
 
 export const editMessageSchema = z.object({
@@ -138,7 +143,10 @@ export const reactionSchema = z.object({
 });
 
 export const forwardMessageSchema = z.object({
-  targetConversationId: z.string().trim().length(24, 'Invalid identifier'),
+  targetConversationId: z
+    .string({ required_error: 'Invalid identifier', invalid_type_error: 'Invalid identifier' })
+    .trim()
+    .regex(/^[a-f0-9]{24}$/i, 'Invalid identifier'),
   clientId: z.string().trim().max(80).optional()
 });
 
@@ -181,11 +189,36 @@ export const resetPasswordSchema = z
 export const reportSchema = z.object({
   reason: z.enum(['spam', 'harassment', 'impersonation', 'inappropriate', 'other']),
   details: z.string().trim().max(1000).optional(),
-  messageId: z.string().length(24).optional(),
-  conversationId: z.string().length(24).optional()
+  messageId: z
+    .string()
+    .trim()
+    .regex(/^[a-f0-9]{24}$/i, 'Invalid identifier')
+    .optional(),
+  conversationId: z
+    .string()
+    .trim()
+    .regex(/^[a-f0-9]{24}$/i, 'Invalid identifier')
+    .optional()
 });
 
-export const idSchema = z.string().trim().length(24, 'Invalid identifier');
+export const idSchema = z
+  .string({ required_error: 'Invalid identifier', invalid_type_error: 'Invalid identifier' })
+  .trim()
+  .regex(/^[a-f0-9]{24}$/i, 'Invalid identifier');
+
+/**
+ * Path/socket identifiers must be the same 24-char hex format the stores emit.
+ * Throws a dedicated INVALID_ID error so the chat UI can show a clear banner
+ * instead of a generic validation message — and so CastError is not the only
+ * producer of "Invalid identifier".
+ */
+export function parseId(value, ApiError) {
+  const normalized = normalizeId(value);
+  if (!isId(normalized)) {
+    throw new ApiError(400, 'Invalid identifier', { code: 'INVALID_ID' });
+  }
+  return normalized;
+}
 
 export const avatarColorSchema = z.enum([
   '#6366f1',

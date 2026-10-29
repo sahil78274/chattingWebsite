@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import mongoose from 'mongoose';
 import request from 'supertest';
 import { User } from '../src/models/User.js';
+import { Message } from '../src/models/Message.js';
 import { MongoStore } from '../src/store/mongo/MongoStore.js';
 import { newId } from '../src/utils/ids.js';
 import {
@@ -119,7 +120,66 @@ describe('User search', () => {
   });
 });
 
+describe('Mongo query sanitization', () => {
+  test('listMessages keeps $nin valid when production sanitizeFilter is enabled', async () => {
+    const previousSanitizeFilter = mongoose.get('sanitizeFilter');
+    const originalFind = Message.collection.find;
+    const filters = [];
+    const cursor = {
+      sort() {
+        return cursor;
+      },
+      limit() {
+        return cursor;
+      },
+      skip() {
+        return cursor;
+      },
+      project() {
+        return cursor;
+      },
+      collation() {
+        return cursor;
+      },
+      toArray: async () => []
+    };
+    Message.collection.find = (filter) => {
+      filters.push(filter);
+      return cursor;
+    };
+    mongoose.set('sanitizeFilter', true);
+
+    try {
+      const store = new MongoStore();
+      const conversationId = newId();
+      const viewerId = newId();
+      await assert.doesNotReject(() =>
+        store.listMessages({ conversationId, viewerId, limit: 10 })
+      );
+      assert.ok(filters.length >= 1, 'the messages query must reach MongoDB');
+      const filter = filters[0];
+      assert.equal(filter.conversation, conversationId);
+      assert.deepEqual(filter.deletedFor?.$nin, [viewerId]);
+      assert.equal(filter.deletedFor?.$eq, undefined);
+    } finally {
+      Message.collection.find = originalFind;
+      if (previousSanitizeFilter === undefined) delete mongoose.options.sanitizeFilter;
+      else mongoose.set('sanitizeFilter', previousSanitizeFilter);
+    }
+  });
+});
+
 describe('Conversations', () => {
+  test('loads an empty history without error for a new conversation', async () => {
+    const conversation = await startConversation(alice, bob);
+    const res = await alice.agent.get(`/api/conversations/${conversation.id}/messages`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.error, undefined);
+    assert.ok(Array.isArray(res.body.messages));
+    assert.equal(typeof conversation.id, 'string');
+    assert.equal(conversation.id.length, 24);
+  });
+
   test('creates exactly one conversation per pair, even when created twice', async () => {
     const first = await startConversation(alice, bob);
     const second = await startConversation(alice, bob);

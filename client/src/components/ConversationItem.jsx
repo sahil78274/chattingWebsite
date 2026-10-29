@@ -24,7 +24,7 @@ function ConversationItemComponent({ conversation, isActive, isTyping, viewerId,
       ]
         .filter(Boolean)
         .join(' ')}
-      onClick={() => onSelect(conversation.id)}
+      onClick={() => onSelect(conversation.id || conversation._id)}
       aria-current={isActive ? 'true' : undefined}
     >
       <Avatar user={peer} size="md" showPresence />
