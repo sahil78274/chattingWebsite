@@ -465,6 +465,42 @@ export class MongoStore {
     return mongoose.models.User.countDocuments({ role: 'admin', status: 'active' });
   }
 
+  async countConversations() {
+    return mongoose.models.Conversation.countDocuments({});
+  }
+
+  async countMessages() {
+    return mongoose.models.Message.countDocuments({});
+  }
+
+  async countBlocks() {
+    return mongoose.models.Block.countDocuments({});
+  }
+
+  async listRecentRegistrations({ limit = 8 } = {}) {
+    const users = await mongoose.models.User.find({ status: op({ $ne: 'deleted' }) })
+      .setOptions(NO_SANITIZE)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean({ virtuals: true });
+    return users.map((user) => {
+      const plain = MongoStore.plain(user);
+      return { ...plain, id: plain._id };
+    });
+  }
+
+  async findUsersByIds(ids = []) {
+    const list = (ids || []).map((id) => normalizeId(id)).filter(Boolean);
+    if (!list.length) return [];
+    const users = await mongoose.models.User.find({ _id: op({ $in: list }) })
+      .setOptions(NO_SANITIZE)
+      .lean({ virtuals: true });
+    return users.map((user) => {
+      const plain = MongoStore.plain(user);
+      return { ...plain, id: plain._id };
+    });
+  }
+
   async createAuditLog(data) {
     const doc = await mongoose.models.AuditLog.create(data);
     return MongoStore.plain(doc);
@@ -519,6 +555,40 @@ export class MongoStore {
   async createReport(data) {
     const doc = await mongoose.models.Report.create(data);
     return MongoStore.plain(doc);
+  }
+
+  async listReports({ status = 'all', limit = 20, offset = 0 } = {}) {
+    const filter = status && status !== 'all' ? { status } : {};
+    const rows = await mongoose.models.Report.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(offset)
+      .limit(limit)
+      .lean();
+    const total = await mongoose.models.Report.countDocuments(filter);
+    return { reports: MongoStore.many(rows), total };
+  }
+
+  async findReportById(id) {
+    const str = normalizeId(id);
+    if (!str) return null;
+    return MongoStore.plain(await mongoose.models.Report.findById(str).lean());
+  }
+
+  async updateReport(id, patch) {
+    const str = normalizeId(id);
+    if (!str) return null;
+    const doc = await mongoose.models.Report.findByIdAndUpdate(str, { $set: patch }, { new: true }).lean();
+    return MongoStore.plain(doc);
+  }
+
+  async countReportsByStatus() {
+    const [total, open, reviewed, closed] = await Promise.all([
+      mongoose.models.Report.countDocuments({}),
+      mongoose.models.Report.countDocuments({ status: 'open' }),
+      mongoose.models.Report.countDocuments({ status: 'reviewed' }),
+      mongoose.models.Report.countDocuments({ status: 'closed' })
+    ]);
+    return { total, open, reviewed, closed };
   }
 
   // ---------------------------------------------------------- refresh tokens

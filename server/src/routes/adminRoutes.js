@@ -17,10 +17,13 @@ const writeLimiter = rateLimit({
 router.use(requireAuth, requireAdmin);
 
 router.get('/overview', admin.overview);
+router.get('/me', admin.profile);
 router.get('/users', admin.users);
 router.post('/users', writeLimiter, admin.createUser);
 router.patch('/users/:userId/status', writeLimiter, admin.updateStatus);
 router.patch('/users/:userId/role', writeLimiter, admin.updateRole);
+router.get('/reports', admin.reports);
+router.patch('/reports/:reportId', writeLimiter, admin.updateReport);
 router.get('/audit', admin.audit);
 
 export default router;

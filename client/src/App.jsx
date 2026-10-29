@@ -65,6 +65,15 @@ export function App() {
         }
       />
       <Route
+        path="/admin"
+        element={
+          <RequireAdmin>
+            <AdminPage />
+          </RequireAdmin>
+        }
+      />
+      {/* Kept so existing bookmarks/links to the old admin URL still work. */}
+      <Route
         path="/app/admin"
         element={
           <RequireAdmin>

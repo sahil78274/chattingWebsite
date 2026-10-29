@@ -1,7 +1,7 @@
 import config from '../config/env.js';
 import ApiError from '../utils/ApiError.js';
 import { hashPassword } from './authService.js';
-import { adminUser } from '../utils/serialize.js';
+import { adminUser, publicUser } from '../utils/serialize.js';
 import { sanitizeText } from '../utils/validation.js';
 import logger from '../utils/logger.js';
 
@@ -43,7 +43,13 @@ async function guardLastAdmin(store, user) {
 
 /**
  * Promote an existing account listed in BOOTSTRAP_ADMIN_USERNAME / EMAIL.
- * Never creates a user and never accepts a password from the environment.
+ *
+ * Safety properties:
+ *  - Never creates a user and never accepts a password from the environment.
+ *  - Only runs while the deployment has no active administrator yet, so leaving
+ *    the variable configured cannot silently re-promote an account later (for
+ *    example after an administrator deliberately demoted it).
+ *  - Idempotent: re-running on an already-admin account is a no-op.
  */
 export async function bootstrapAdmin(store) {
   const username = String(config.admin.bootstrapUsername || '').trim();
@@ -59,6 +65,15 @@ export async function bootstrapAdmin(store) {
   }
   if (user.role === 'admin') return user;
 
+  const activeAdmins = await store.countActiveAdmins();
+  if (activeAdmins > 0) {
+    logger.warn(
+      'Admin bootstrap skipped: an active administrator already exists. Use the admin panel to grant further roles, or clear BOOTSTRAP_ADMIN_* .',
+      { activeAdmins }
+    );
+    return null;
+  }
+
   const updated = await store.updateUser(user._id, { role: 'admin' });
   await writeAudit(store, {
     actor: user._id,
@@ -71,9 +86,28 @@ export async function bootstrapAdmin(store) {
 }
 
 export async function adminOverview(store) {
-  const counts = await store.countUsersByStatus();
-  const { logs, total } = await store.listAuditLogs({ limit: 25, offset: 0 });
-  return { counts, recentAudit: logs.map(serializeAudit), auditTotal: total };
+  const [counts, conversations, messages, reports, recent, { logs, total }] = await Promise.all([
+    store.countUsersByStatus(),
+    store.countConversations(),
+    store.countMessages(),
+    store.countReportsByStatus(),
+    store.listRecentRegistrations({ limit: 8 }),
+    store.listAuditLogs({ limit: 25, offset: 0 })
+  ]);
+
+  return {
+    counts,
+    totals: {
+      users: counts.total,
+      conversations,
+      messages,
+      reports: reports.total
+    },
+    reports,
+    recentRegistrations: recent.map(adminUser),
+    recentAudit: logs.map(serializeAudit),
+    auditTotal: total
+  };
 }
 
 export async function listAdminUsers(store, { q = '', page = 1, limit = 20, status = 'all' }) {
@@ -98,6 +132,67 @@ export async function listAudit(store, { page = 1, limit = 30 } = {}) {
     pageSize: limit,
     hasMore: offset + logs.length < total
   };
+}
+
+function serializeReport(report, usersById) {
+  const reporter = usersById.get(String(report.reporter)) || null;
+  const reportedUser = usersById.get(String(report.reportedUser)) || null;
+  return {
+    id: report._id || report.id,
+    reason: report.reason,
+    details: report.details || '',
+    status: report.status || 'open',
+    createdAt: report.createdAt,
+    updatedAt: report.updatedAt,
+    reporter: publicUser(reporter) || { id: String(report.reporter), username: 'deleted', displayName: 'Deleted account' },
+    reportedUser:
+      publicUser(reportedUser) || { id: String(report.reportedUser), username: 'deleted', displayName: 'Deleted account' },
+    // Report records may reference a message, but its text is never loaded or
+    // returned here: administrators only see the reporter's own description.
+    hasMessage: Boolean(report.message)
+  };
+}
+
+async function loadUsersForReports(store, reports) {
+  const ids = new Set();
+  for (const report of reports) {
+    if (report.reporter) ids.add(String(report.reporter));
+    if (report.reportedUser) ids.add(String(report.reportedUser));
+  }
+  const users = await store.findUsersByIds([...ids]);
+  return new Map(users.map((user) => [String(user._id || user.id), user]));
+}
+
+export async function listAdminReports(store, { status = 'open', page = 1, limit = 20 } = {}) {
+  const offset = (page - 1) * limit;
+  const { reports, total } = await store.listReports({ status, limit, offset });
+  const usersById = await loadUsersForReports(store, reports);
+  return {
+    reports: reports.map((report) => serializeReport(report, usersById)),
+    total,
+    page,
+    pageSize: limit,
+    hasMore: offset + reports.length < total
+  };
+}
+
+export async function setReportStatus(store, actorId, reportId, status) {
+  const report = await store.findReportById(reportId);
+  if (!report) throw ApiError.notFound('Report not found', { code: 'REPORT_NOT_FOUND' });
+
+  const from = report.status || 'open';
+  const updated = from === status ? report : await store.updateReport(reportId, { status });
+  if (from !== status) {
+    await writeAudit(store, {
+      actor: actorId,
+      action: 'admin.report.update',
+      targetUser: report.reportedUser || null,
+      metadata: { reportId, from, to: status }
+    });
+  }
+
+  const usersById = await loadUsersForReports(store, [updated]);
+  return serializeReport(updated, usersById);
 }
 
 export async function createAdminUser(store, actorId, data) {
@@ -183,6 +278,8 @@ export default {
   bootstrapAdmin,
   adminOverview,
   listAdminUsers,
+  listAdminReports,
+  setReportStatus,
   listAudit,
   createAdminUser,
   setUserStatus,

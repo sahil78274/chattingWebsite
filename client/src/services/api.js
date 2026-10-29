@@ -225,10 +225,17 @@ export const api = {
     }),
 
   adminOverview: () => apiRequest('/admin/overview'),
-  adminUsers: ({ q = '', page = 1, status = 'all' } = {}) => {
-    const params = new URLSearchParams({ q, page: String(page), status });
+  adminMe: () => apiRequest('/admin/me'),
+  adminUsers: ({ q = '', page = 1, status = 'all', limit = 20 } = {}) => {
+    const params = new URLSearchParams({ q, page: String(page), status, limit: String(limit) });
     return apiRequest(`/admin/users?${params.toString()}`);
   },
+  adminReports: ({ status = 'open', page = 1, limit = 20 } = {}) => {
+    const params = new URLSearchParams({ status, page: String(page), limit: String(limit) });
+    return apiRequest(`/admin/reports?${params.toString()}`);
+  },
+  adminUpdateReport: (reportId, status) =>
+    apiRequest(`/admin/reports/${reportId}`, { method: 'PATCH', body: { status } }),
   adminCreateUser: (payload) => apiRequest('/admin/users', { method: 'POST', body: payload }),
   adminSetStatus: (userId, status) =>
     apiRequest(`/admin/users/${userId}/status`, { method: 'PATCH', body: { status } }),

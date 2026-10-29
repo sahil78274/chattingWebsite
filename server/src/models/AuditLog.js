@@ -16,7 +16,8 @@ const auditLogSchema = new Schema(
         'admin.user.suspend',
         'admin.user.reactivate',
         'admin.user.delete',
-        'admin.user.role'
+        'admin.user.role',
+        'admin.report.update'
       ]
     },
     targetUser: { type: String, default: null, ref: 'User' },

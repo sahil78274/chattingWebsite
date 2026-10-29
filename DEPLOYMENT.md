@@ -79,8 +79,12 @@ Never put object-storage keys in `VITE_*` variables.
 
 ### First administrator
 Register the account through the normal signup form, then set `BOOTSTRAP_ADMIN_USERNAME` (or
-`BOOTSTRAP_ADMIN_EMAIL`) on the API and restart. The process promotes that existing user. There is no
-hardcoded admin password.
+`BOOTSTRAP_ADMIN_EMAIL`) on the API and restart. The process promotes that existing user once — it
+only runs while the deployment has no active administrator, so it is idempotent and cannot be used
+to silently re-promote a demoted account. Remove the variable after the first successful boot and use
+the admin panel (`/admin`) to grant further roles. There is no hardcoded admin password, no public
+admin signup, and no database migration is required (Mongoose creates the `auditlogs` collection on
+first write).
 
 ### Free plan caveat
 Render free instances sleep after inactivity; the first request after sleeping takes ~30 s and open
