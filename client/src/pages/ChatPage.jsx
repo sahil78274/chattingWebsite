@@ -2,10 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   LogOut,
   MessageSquarePlus,
-  Moon,
   Search,
   Settings,
-  Sun,
   X
 } from 'lucide-react';
 import { Brand } from '../components/Brand.jsx';
@@ -21,8 +19,8 @@ import { EditProfileModal } from '../components/EditProfileModal.jsx';
 import { SettingsModal } from '../components/SettingsModal.jsx';
 import { ReportModal } from '../components/ReportModal.jsx';
 import { ConfirmDialog } from '../components/ConfirmDialog.jsx';
+import { ThemeToggle } from '../components/ThemeToggle.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
-import { useTheme } from '../context/ThemeContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 import { useChatWorkspace } from '../hooks/useChatWorkspace.js';
 import { useDebounce } from '../hooks/useDebounce.js';
@@ -34,7 +32,6 @@ const SOUND_KEY = 'connectly.soundEnabled';
 
 export function ChatPage() {
   const { user, logout } = useAuth();
-  const { theme, toggleTheme } = useTheme();
   const { notify } = useToast();
 
   const [query, setQuery] = useState('');
@@ -333,15 +330,7 @@ export function ChatPage() {
         <div className="sidebar__top">
           <Brand />
           <div className="sidebar__actions">
-            <button
-              type="button"
-              className="icon-btn"
-              onClick={toggleTheme}
-              title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-              aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-            >
-              {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-            </button>
+            <ThemeToggle />
             <button
               type="button"
               className="icon-btn"

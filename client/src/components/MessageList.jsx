@@ -40,8 +40,6 @@ export function MessageList({
   const shouldStickToBottom = useRef(true);
   const [showJump, setShowJump] = useState(false);
 
-  // Track whether the user is near the bottom so incoming messages don't
-  // yank them away from older history they are reading.
   useEffect(() => {
     const node = containerRef.current;
     if (!node) return undefined;
@@ -54,7 +52,6 @@ export function MessageList({
     return () => node.removeEventListener('scroll', onScroll);
   }, []);
 
-  // Restore scroll position after prepending older messages.
   useLayoutEffect(() => {
     const node = containerRef.current;
     if (!node) return;
@@ -76,7 +73,7 @@ export function MessageList({
     onLoadMore();
   }
 
-  if (loading) {
+  if (loading && !messages.length) {
     return (
       <div className="messages" aria-busy="true">
         <div className="messages__loading">
@@ -94,11 +91,11 @@ export function MessageList({
         <div className="empty-state">
           <div className="empty-state__inner">
             <span className="empty-state__icon">
-              <MessageCircle size={30} />
+              <MessageCircle size={28} />
             </span>
             <h3>Say hello to {peer?.displayName || peer?.username}</h3>
             <p>
-              This is the start of your private conversation. Messages are delivered instantly and stay
+              This is the beginning of your private conversation. Messages are delivered instantly and stay
               in your history.
             </p>
           </div>
@@ -120,7 +117,7 @@ export function MessageList({
 
       {messages.map((message, index) => {
         const previous = messages[index - 1];
-        const isOut = message.senderId === viewerId;
+        const isOut = String(message.senderId) === String(viewerId);
         const newDay = !previous || !isSameDay(previous.createdAt, message.createdAt);
         const grouped =
           !newDay &&
@@ -146,15 +143,15 @@ export function MessageList({
       {showJump ? (
         <button
           type="button"
-          className="icon-btn"
-          style={{ position: 'sticky', bottom: 8, alignSelf: 'center', background: 'var(--bg-raised)' }}
+          className="jump-latest"
           onClick={() => {
             shouldStickToBottom.current = true;
             bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
           }}
           aria-label="Jump to the latest message"
         >
-          <ArrowDown size={18} />
+          <ArrowDown size={16} />
+          New messages
         </button>
       ) : null}
     </div>

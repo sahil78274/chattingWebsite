@@ -225,6 +225,9 @@ describe('Real-time messaging', () => {
       });
       assert.equal(ack.ok, true);
       assert.ok(ack.message.id);
+      assert.ok(ack.message.deliveredAt, 'online recipient must produce a delivery timestamp');
+      assert.equal(ack.message.readAt, null, 'must not mark a message as read merely because it was sent');
+      assert.equal(ack.message.status, 'delivered');
 
       const received = await incoming;
       assert.equal(received.message.senderId, alice.user.id);
@@ -249,9 +252,46 @@ describe('Real-time messaging', () => {
       const stored = history.body.messages.find((m) => m.text === 'Realtime hello from Alice');
       assert.ok(stored);
       assert.equal(stored.senderId, alice.user.id);
+      assert.ok(stored.deliveredAt, 'delivery timestamp should be stored');
       assert.ok(stored.readAt, 'read timestamp should be stored');
+      assert.equal(stored.status, 'read');
     } finally {
       closeSockets(aliceSocket, bobSocket);
+    }
+  });
+
+  test('stays at a single tick when the recipient is offline, then delivers on reconnect', async () => {
+    const dana = await createAccount(ctx, request, { username: 'dana_offline' });
+    const conversation = await startConversation(alice, dana);
+    const aliceSocket = await connectSocket(ctx, alice.token);
+    try {
+      const ack = await emitWithAck(aliceSocket, 'message:send', {
+        conversationId: conversation.id,
+        text: 'Dana is offline',
+        clientId: `offline-${Date.now()}`
+      });
+      assert.equal(ack.ok, true);
+      assert.equal(ack.message.deliveredAt, null);
+      assert.equal(ack.message.readAt, null);
+      assert.equal(ack.message.status, 'sent');
+
+      const delivered = waitForEvent(aliceSocket, 'receipt:delivered', {
+        predicate: (payload) => payload.conversationId === conversation.id
+      });
+      const danaSocket = await connectSocket(ctx, dana.token);
+      try {
+        const receipt = await delivered;
+        assert.ok(receipt.deliveredAt);
+        const history = await alice.agent.get(`/api/conversations/${conversation.id}/messages`);
+        const stored = history.body.messages.find((m) => m.text === 'Dana is offline');
+        assert.ok(stored.deliveredAt);
+        assert.equal(stored.readAt, null);
+        assert.equal(stored.status, 'delivered');
+      } finally {
+        closeSockets(danaSocket);
+      }
+    } finally {
+      closeSockets(aliceSocket);
     }
   });
 

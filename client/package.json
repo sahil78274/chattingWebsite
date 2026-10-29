@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
     "lint": "echo \"(optional) add eslint here\"",
+    "test": "node --test src/lib/messages.test.js",
     "check:render": "vite build --ssr scripts/ssr-check.jsx --outDir .ssr --emptyOutDir && node .ssr/ssr-check.js",
     "check:e2e": "node scripts/e2e-check.mjs"
   },

@@ -68,11 +68,21 @@ function createSendRateLimiter({ max = 20, windowMs = 10_000 } = {}) {
   };
 }
 
+function isAllowedOrigin(origin) {
+  if (!origin) return true;
+  if (config.cors.origins.includes(origin) || config.cors.origins.includes('*')) return true;
+  if (!config.isProd && /^https:\/\/[a-z0-9-]+\.(e2b\.app|arena\.ai)$/i.test(origin)) return true;
+  return false;
+}
+
 export function createSocketServer(httpServer, store) {
   const io = new Server(httpServer, {
     path: '/socket.io',
     cors: {
-      origin: config.cors.origins,
+      origin: (origin, callback) => {
+        if (isAllowedOrigin(origin)) return callback(null, true);
+        return callback(new Error('CORS_BLOCKED'));
+      },
       credentials: true,
       methods: ['GET', 'POST']
     },
@@ -135,6 +145,36 @@ export function createSocketServer(httpServer, store) {
   }
 
   io.emitDirectMessage = (result) => deliverMessage(result);
+
+  /**
+   * Marks the message delivered when the recipient already has a live socket,
+   * then broadcasts it. The ack payload is mutated so the sender's optimistic
+   * row can show a single tick (sent) vs double grey ticks (delivered).
+   * Read receipts are NEVER applied here — only when the recipient opens the thread.
+   */
+  io.finalizeAndDeliver = async (result) => {
+    if (!result || result.duplicate) return result;
+    const conversationId = result.conversation?._id || result.message?.conversationId;
+    const recipientId = result.recipientId;
+    if (recipientId && conversationId && isUserOnline(recipientId) && !result.message?.readAt) {
+      if (!result.message.deliveredAt) {
+        const deliveredAt = new Date();
+        await store.markDeliveredToUser({ conversationId, recipientId }).catch(() => 0);
+        result.message = {
+          ...result.message,
+          deliveredAt: deliveredAt.toISOString(),
+          status: 'delivered'
+        };
+      }
+      io.to(userRoom(result.message.senderId)).emit('receipt:delivered', {
+        conversationId,
+        recipientId,
+        deliveredAt: result.message.deliveredAt
+      });
+    }
+    deliverMessage(result);
+    return result;
+  };
 
   io.emitReadReceipt = ({ conversationId, readerId, senderId, readAt }) => {
     if (!senderId) return;
@@ -221,7 +261,7 @@ export function createSocketServer(httpServer, store) {
         });
 
         if (!result.duplicate) {
-          deliverMessage(result);
+          await io.finalizeAndDeliver(result);
           socket.join(conversationRoom(conversationId));
         }
 
