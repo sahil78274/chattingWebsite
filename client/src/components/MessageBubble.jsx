@@ -2,39 +2,42 @@ import { memo } from 'react';
 import { AlertCircle, Check, CheckCheck, Clock, RotateCw } from 'lucide-react';
 import { Avatar } from './Avatar.jsx';
 import { formatTime } from '../lib/format.js';
+import { messageStatus } from '../lib/messages.js';
 
 function StatusIcon({ message, isOut }) {
   if (!isOut) return null;
-  if (message.pending) {
+  const status = messageStatus(message);
+
+  if (status === 'pending') {
     return (
-      <span className="bubble__state" title="Sending">
+      <span className="bubble__state bubble__state--pending" title="Sending" aria-label="Sending">
         <Clock aria-hidden />
       </span>
     );
   }
-  if (message.failed) {
+  if (status === 'failed') {
     return (
-      <span className="bubble__state" title="Not sent" style={{ color: '#fca5a5' }}>
+      <span className="bubble__state bubble__state--failed" title="Not sent" aria-label="Not sent">
         <AlertCircle aria-hidden />
       </span>
     );
   }
-  if (message.readAt) {
+  if (status === 'read') {
     return (
-      <span className="bubble__state bubble__state--read" title="Read">
+      <span className="bubble__state bubble__state--read" title="Read" aria-label="Read">
         <CheckCheck aria-hidden />
       </span>
     );
   }
-  if (message.deliveredAt) {
+  if (status === 'delivered') {
     return (
-      <span className="bubble__state" title="Delivered">
+      <span className="bubble__state bubble__state--delivered" title="Delivered" aria-label="Delivered">
         <CheckCheck aria-hidden />
       </span>
     );
   }
   return (
-    <span className="bubble__state" title="Sent">
+    <span className="bubble__state bubble__state--sent" title="Sent" aria-label="Sent">
       <Check aria-hidden />
     </span>
   );
@@ -48,6 +51,8 @@ function MessageBubbleComponent({ message, isOut, peer, showAvatar, grouped, onR
   ]
     .filter(Boolean)
     .join(' ');
+
+  const status = messageStatus(message);
 
   return (
     <div className={classes}>
@@ -64,8 +69,9 @@ function MessageBubbleComponent({ message, isOut, peer, showAvatar, grouped, onR
           .filter(Boolean)
           .join(' ')}
         data-message-id={message.id}
+        data-status={status}
       >
-        <span>{message.text}</span>
+        <span className="bubble__text">{message.text}</span>
         <span className="bubble__meta">
           {message.failed && onRetry ? (
             <button type="button" className="bubble__retry" onClick={() => onRetry(message)}>

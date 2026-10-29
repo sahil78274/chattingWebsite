@@ -1,4 +1,5 @@
 import { Brand } from './Brand.jsx';
+import { ThemeToggle } from './ThemeToggle.jsx';
 
 export function AuthLayout({ children, footer }) {
   return (
@@ -50,6 +51,9 @@ export function AuthLayout({ children, footer }) {
       </aside>
 
       <main className="auth__panel">
+        <div className="auth-theme-toggle">
+          <ThemeToggle />
+        </div>
         <div className="auth__card">
           <div className="auth__mobile-brand">
             <Brand />

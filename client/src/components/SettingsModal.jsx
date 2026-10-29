@@ -1,16 +1,15 @@
 import { useState } from 'react';
-import { Bell, BellOff, Loader2, LogOut, Monitor, Moon, ShieldCheck, Sun, Volume2, VolumeX } from 'lucide-react';
+import { Bell, BellOff, Loader2, LogOut, ShieldCheck, Volume2, VolumeX } from 'lucide-react';
 import { Modal } from './Modal.jsx';
 import { PasswordField } from './PasswordField.jsx';
+import { ThemeToggle } from './ThemeToggle.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
-import { useTheme } from '../context/ThemeContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 import { api } from '../services/api.js';
 import { passwordStrength } from '../lib/format.js';
 
 export function SettingsModal({ onClose, notificationsEnabled, onToggleNotifications, notificationSupported, soundEnabled, onToggleSound, mutedCount, onClearMutes }) {
   const { user, updateUser, logout } = useAuth();
-  const { theme, setTheme } = useTheme();
   const { notify } = useToast();
   const [tab, setTab] = useState('general');
   const [privacyBusy, setPrivacyBusy] = useState(false);
@@ -64,13 +63,9 @@ export function SettingsModal({ onClose, notificationsEnabled, onToggleNotificat
         <div className="toggle-row">
           <div className="toggle-row__text">
             <span className="toggle-row__label">Theme</span>
-            <span className="toggle-row__hint">Light by default. Toggle for dark mode.</span>
+            <span className="toggle-row__hint">Dark or light. Applied instantly and remembered on this device.</span>
           </div>
-          <div style={{ display: 'flex', gap: 4 }}>
-            <button type="button" className={`icon-btn icon-btn--sm${theme === 'dark' ? ' is-active' : ''}`} onClick={() => setTheme('dark')} aria-label="Use dark theme" aria-pressed={theme === 'dark'}><Moon size={16} /></button>
-            <button type="button" className={`icon-btn icon-btn--sm${theme === 'light' ? ' is-active' : ''}`} onClick={() => setTheme('light')} aria-label="Use light theme" aria-pressed={theme === 'light'}><Sun size={16} /></button>
-            <button type="button" className={`icon-btn icon-btn--sm${theme === 'system' ? ' is-active' : ''}`} onClick={() => setTheme(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')} aria-label="Match system theme"><Monitor size={16} /></button>
-          </div>
+          <ThemeToggle variant="segmented" />
         </div>
 
         <span className="modal__section-title">Notifications</span>

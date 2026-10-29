@@ -9,8 +9,8 @@ export function EmptyChatState({ onFindPeople, userName }) {
         </span>
         <h3>{userName ? `Welcome back, ${userName}` : 'Your conversations live here'}</h3>
         <p>
-          Pick a conversation on the left, or search for someone by their username to start a new private
-          chat.
+          Select a thread, or search for someone by username to start a private conversation. Messages
+          arrive instantly and stay in your history.
         </p>
         <div className="empty-state__tips">
           <span className="chip">

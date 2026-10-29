@@ -1,10 +1,10 @@
 /* ---------------------------------------------------------------------------
-   Connectly Design Tokens — restrained, professional messaging product
-   Light is the default theme for auth; dark is supported for chat via toggle.
-   All colors are expressed with CSS variables so brand re-skin is one file.
+   Connectly design tokens
+   Two themes only: dark (true black) and light. Every colour in the product
+   flows through these variables — never scatter hex values in components.
 --------------------------------------------------------------------------- */
 :root {
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   --brand-50: #eef2ff;
@@ -12,103 +12,114 @@
   --brand-200: #c7d2fe;
   --brand-300: #a5b4fc;
   --brand-400: #818cf8;
-  --brand-500: #5753e5;
-  --brand-600: #4338ca;
-  --brand-700: #3730a3;
+  --brand-500: #6366f1;
+  --brand-600: #4f46e5;
+  --brand-700: #4338ca;
 
-  --success: #16a34a;
+  --success: #22c55e;
   --warning: #d97706;
-  --danger: #dc2626;
+  --danger: #ef4444;
 
   --radius-xs: 6px;
   --radius-sm: 8px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 18px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
   --radius-pill: 999px;
 
-  --sidebar-width: 360px;
+  --sidebar-width: 352px;
   --header-height: 64px;
-  --composer-min-height: 68px;
+  --composer-min-height: 72px;
 
   --transition-fast: 140ms ease;
   --transition-base: 180ms cubic-bezier(0.2, 0, 0, 1);
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-  --shadow-md: 0 4px 16px rgba(15, 23, 42, 0.08);
-  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.12);
 }
 
-/* ------------------------------------------------------------------ light (default) */
+/* ------------------------------------------------------------------ light */
 :root,
 [data-theme='light'] {
   color-scheme: light;
-  --bg-app: #f8f9fb;
+  --bg-app: #f4f4f5;
   --bg-canvas: #ffffff;
+  --bg-chat: #f7f7f8;
   --bg-elevated: #ffffff;
-  --bg-raised: #f1f5f9;
+  --bg-raised: #f4f4f5;
   --bg-input: #ffffff;
-  --bg-hover: #f1f5f9;
-  --bg-active: #e2e8f0;
-  --bg-overlay: rgba(15, 23, 42, 0.32);
+  --bg-hover: #f1f1f3;
+  --bg-active: #ececef;
+  --bg-overlay: rgba(9, 9, 11, 0.4);
 
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --text-muted: #64748b;
-  --text-inverse: #ffffff;
+  --text-primary: #09090b;
+  --text-secondary: #3f3f46;
+  --text-muted: #71717a;
+  --text-inverse: #fafafa;
 
-  --border-subtle: rgba(15, 23, 42, 0.06);
-  --border-default: rgba(15, 23, 42, 0.08);
-  --border-strong: rgba(15, 23, 42, 0.14);
+  --border-subtle: rgba(9, 9, 11, 0.06);
+  --border-default: rgba(9, 9, 11, 0.1);
+  --border-strong: rgba(9, 9, 11, 0.16);
   --border-focus: var(--brand-600);
 
-  --bubble-in: #f1f5f9;
-  --bubble-in-text: #0f172a;
+  --bubble-in: #ececef;
+  --bubble-in-text: #09090b;
   --bubble-out: #4f46e5;
   --bubble-out-text: #ffffff;
 
-  --accent-soft: rgba(79, 70, 229, 0.08);
-  --danger-soft: rgba(220, 38, 38, 0.08);
-  --success-soft: rgba(22, 163, 74, 0.08);
+  --tick-sent: rgba(255, 255, 255, 0.62);
+  --tick-delivered: rgba(255, 255, 255, 0.78);
+  --tick-read: #7dd3fc;
 
-  --scrollbar-thumb: rgba(15, 23, 42, 0.18);
-  --skeleton: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 37%, #f1f5f9 63%);
+  --accent-soft: rgba(79, 70, 229, 0.1);
+  --danger-soft: rgba(239, 68, 68, 0.1);
+  --success-soft: rgba(34, 197, 94, 0.1);
+
+  --scrollbar-thumb: rgba(9, 9, 11, 0.18);
+  --skeleton: linear-gradient(90deg, #f4f4f5 25%, #e4e4e7 37%, #f4f4f5 63%);
+
+  --shadow-sm: 0 1px 2px rgba(9, 9, 11, 0.05);
+  --shadow-md: 0 8px 24px rgba(9, 9, 11, 0.08);
+  --shadow-lg: 0 24px 48px rgba(9, 9, 11, 0.12);
 }
 
-/* ------------------------------------------------------------------ dark */
+/* ------------------------------------------------------------------ dark — true black, layered surfaces */
 [data-theme='dark'] {
   color-scheme: dark;
-  --bg-app: #0b0e14;
-  --bg-canvas: #11151f;
-  --bg-elevated: #151a27;
-  --bg-raised: #1a2132;
-  --bg-input: #1a2132;
-  --bg-hover: #1e2738;
-  --bg-active: #243044;
-  --bg-overlay: rgba(2, 6, 16, 0.64);
+  --bg-app: #000000;
+  --bg-canvas: #0a0a0c;
+  --bg-chat: #050506;
+  --bg-elevated: #121214;
+  --bg-raised: #18181b;
+  --bg-input: #18181b;
+  --bg-hover: #1c1c20;
+  --bg-active: #232329;
+  --bg-overlay: rgba(0, 0, 0, 0.72);
 
-  --text-primary: #eef2f9;
-  --text-secondary: #94a3b8;
-  --text-muted: #7381a0;
-  --text-inverse: #0b0e14;
+  --text-primary: #f4f4f5;
+  --text-secondary: #a1a1aa;
+  --text-muted: #71717a;
+  --text-inverse: #09090b;
 
-  --border-subtle: rgba(148, 163, 184, 0.08);
-  --border-default: rgba(148, 163, 184, 0.12);
-  --border-strong: rgba(148, 163, 184, 0.18);
+  --border-subtle: rgba(255, 255, 255, 0.05);
+  --border-default: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.14);
   --border-focus: var(--brand-400);
 
-  --bubble-in: #1e293b;
-  --bubble-in-text: #eef2f9;
+  --bubble-in: #18181b;
+  --bubble-in-text: #f4f4f5;
   --bubble-out: #4f46e5;
   --bubble-out-text: #ffffff;
 
-  --accent-soft: rgba(99, 102, 241, 0.12);
+  --tick-sent: rgba(255, 255, 255, 0.55);
+  --tick-delivered: rgba(228, 228, 231, 0.82);
+  --tick-read: #7dd3fc;
+
+  --accent-soft: rgba(99, 102, 241, 0.16);
   --danger-soft: rgba(248, 113, 113, 0.12);
-  --success-soft: rgba(74, 222, 128, 0.10);
+  --success-soft: rgba(74, 222, 128, 0.12);
 
-  --scrollbar-thumb: rgba(148, 163, 184, 0.22);
-  --skeleton: linear-gradient(90deg, #151a27 25%, #1e2738 37%, #151a27 63%);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.16);
+  --skeleton: linear-gradient(90deg, #121214 25%, #1c1c20 37%, #121214 63%);
 
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
-  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.24);
-  --shadow-lg: 0 24px 56px rgba(0, 0, 0, 0.34);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 24px 56px rgba(0, 0, 0, 0.55);
 }

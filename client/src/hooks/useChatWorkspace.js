@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, getAccessToken } from '../services/api.js';
 import { createSocket } from '../services/socket.js';
+import {
+  applyConversationReceipt,
+  idsEqual,
+  mergeServerMessage,
+  reconcileMessages
+} from '../lib/messages.js';
 
 const PAGE_SIZE = 30;
 
@@ -17,21 +23,6 @@ function emitAck(socket, event, payload, timeoutMs = 12_000) {
   });
 }
 
-/** Replaces the optimistic copy of a message with the persisted one. */
-function mergeServerMessage(list, message) {
-  const byId = list.findIndex((item) => item.id === message.id);
-  if (byId !== -1) return list;
-  const byClient = message.clientId
-    ? list.findIndex((item) => item.clientId && item.clientId === message.clientId)
-    : -1;
-  if (byClient !== -1) {
-    const next = [...list];
-    next[byClient] = { ...message };
-    return next;
-  }
-  return [...list, message];
-}
-
 export function useChatWorkspace({ user, notify, onBrowserNotification }) {
   const [conversations, setConversations] = useState([]);
   const [conversationsLoading, setConversationsLoading] = useState(true);
@@ -41,7 +32,7 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [messagesError, setMessagesError] = useState('');
   const [hasMore, setHasMore] = useState(false);
-  const [cursor, setCursor] = useState(null); // { before, beforeId } for older pages
+  const [cursor, setCursor] = useState(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [typingByConversation, setTypingByConversation] = useState({});
   const [connectionState, setConnectionState] = useState('connecting');
@@ -49,11 +40,14 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
   const socketRef = useRef(null);
   const activeIdRef = useRef(null);
   const conversationsRef = useRef([]);
+  const messagesRef = useRef([]);
+  const cacheRef = useRef(new Map());
   const typingTimers = useRef(new Map());
   const failedMessagesRef = useRef([]);
   const browserNotificationRef = useRef(onBrowserNotification);
   const openRequestRef = useRef(0);
   const mountedRef = useRef(true);
+  const userId = user?.id;
 
   useEffect(() => {
     conversationsRef.current = conversations;
@@ -64,6 +58,11 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
   }, [activeId]);
 
   useEffect(() => {
+    messagesRef.current = messages;
+    if (activeId) cacheRef.current.set(activeId, messages);
+  }, [messages, activeId]);
+
+  useEffect(() => {
     browserNotificationRef.current = onBrowserNotification;
   }, [onBrowserNotification]);
 
@@ -71,24 +70,34 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
     failedMessagesRef.current = messages.filter((message) => message.failed);
   }, [messages]);
 
-  // ------------------------------------------------------------- loaders
-  const loadConversations = useCallback(
-    async ({ showLoading = false } = {}) => {
-      if (showLoading) setConversationsLoading(true);
-      try {
-        const data = await api.listConversations();
-        if (!mountedRef.current) return;
-        setConversations(data.conversations);
-        setConversationsError('');
-      } catch (error) {
-        if (!mountedRef.current) return;
-        setConversationsError(error.message || 'Could not load your conversations');
-      } finally {
-        if (mountedRef.current) setConversationsLoading(false);
-      }
-    },
-    []
-  );
+  const updateMessagesFor = useCallback((conversationId, updater) => {
+    if (!conversationId) return;
+    if (idsEqual(activeIdRef.current, conversationId)) {
+      setMessages((current) => {
+        const next = updater(current);
+        cacheRef.current.set(conversationId, next);
+        return next;
+      });
+    } else {
+      const current = cacheRef.current.get(conversationId) || [];
+      cacheRef.current.set(conversationId, updater(current));
+    }
+  }, []);
+
+  const loadConversations = useCallback(async ({ showLoading = false } = {}) => {
+    if (showLoading) setConversationsLoading(true);
+    try {
+      const data = await api.listConversations();
+      if (!mountedRef.current) return;
+      setConversations(data.conversations);
+      setConversationsError('');
+    } catch (error) {
+      if (!mountedRef.current) return;
+      setConversationsError(error.message || 'Could not load your conversations');
+    } finally {
+      if (mountedRef.current) setConversationsLoading(false);
+    }
+  }, []);
 
   const markRead = useCallback(async (conversationId) => {
     if (!conversationId) return;
@@ -99,7 +108,7 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
         await api.markRead(conversationId);
       }
     } catch {
-      /* non critical */
+      /* non critical — unread badges resync on the next conversation load */
     }
     setConversations((current) =>
       current.map((conversation) =>
@@ -112,16 +121,34 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
     async (conversationId) => {
       const requestId = openRequestRef.current + 1;
       openRequestRef.current = requestId;
+      const previous = activeIdRef.current;
+      if (previous && !idsEqual(previous, conversationId)) {
+        cacheRef.current.set(previous, messagesRef.current);
+      }
+
       setActiveId(conversationId);
       activeIdRef.current = conversationId;
-      setMessages([]);
       setMessagesError('');
-      setMessagesLoading(true);
+
+      const cached = cacheRef.current.get(conversationId);
+      if (cached?.length) {
+        setMessages(cached);
+        setMessagesLoading(false);
+      } else if (!idsEqual(previous, conversationId)) {
+        setMessages([]);
+        setMessagesLoading(true);
+      } else {
+        setMessagesLoading(true);
+      }
 
       try {
         const data = await api.listMessages(conversationId, { limit: PAGE_SIZE });
         if (openRequestRef.current !== requestId) return;
-        setMessages(data.messages);
+        setMessages((current) => {
+          const next = reconcileMessages(current, data.messages, conversationId);
+          cacheRef.current.set(conversationId, next);
+          return next;
+        });
         setHasMore(data.hasMore);
         setCursor(data.hasMore ? { before: data.nextCursor, beforeId: data.nextCursorId } : null);
         socketRef.current?.emit('conversation:join', { conversationId }, () => {});
@@ -137,6 +164,7 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
   );
 
   const closeConversation = useCallback(() => {
+    if (activeIdRef.current) cacheRef.current.set(activeIdRef.current, messagesRef.current);
     setActiveId(null);
     activeIdRef.current = null;
     setMessages([]);
@@ -153,9 +181,9 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
         limit: PAGE_SIZE
       });
       setMessages((current) => {
-        const ids = new Set(current.map((message) => message.id));
-        const older = data.messages.filter((message) => !ids.has(message.id));
-        return [...older, ...current];
+        const next = reconcileMessages(current, data.messages, conversationId);
+        cacheRef.current.set(conversationId, next);
+        return next;
       });
       setHasMore(data.hasMore);
       setCursor(data.hasMore ? { before: data.nextCursor, beforeId: data.nextCursorId } : null);
@@ -166,7 +194,6 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
     }
   }, [cursor, loadingMore, notify]);
 
-  // ------------------------------------------------------------- sending
   const applyConversationPreview = useCallback((conversationId, message, { incrementUnread }) => {
     setConversations((current) => {
       const index = current.findIndex((conversation) => conversation.id === conversationId);
@@ -176,9 +203,7 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
         ...existing,
         lastMessage: { text: message.text, senderId: message.senderId, createdAt: message.createdAt },
         lastMessageAt: message.createdAt,
-        unreadCount: incrementUnread
-          ? (existing.unreadCount || 0) + 1
-          : existing.unreadCount || 0
+        unreadCount: incrementUnread ? (existing.unreadCount || 0) + 1 : existing.unreadCount || 0
       };
       return [updated, ...current.filter((_, position) => position !== index)];
     });
@@ -193,23 +218,27 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
         id: `temp-${clientId}`,
         clientId,
         conversationId,
-        senderId: user.id,
+        senderId: userId,
         text,
         createdAt: new Date().toISOString(),
-        pending: true
+        pending: true,
+        deliveredAt: null,
+        readAt: null
       };
-      setMessages((current) => [...current, optimistic]);
+      updateMessagesFor(conversationId, (current) => [...current, optimistic]);
       applyConversationPreview(conversationId, optimistic, { incrementUnread: false });
 
       try {
         const socket = socketRef.current;
-        const result =
-          socket?.connected
-            ? await emitAck(socket, 'message:send', { conversationId, text, clientId })
-            : await api.sendMessage(conversationId, { text, clientId });
-        setMessages((current) => mergeServerMessage(current, result.message));
+        const result = socket?.connected
+          ? await emitAck(socket, 'message:send', { conversationId, text, clientId })
+          : await api.sendMessage(conversationId, { text, clientId });
+        if (!result?.message) {
+          throw new Error('The server did not return the saved message');
+        }
+        updateMessagesFor(conversationId, (current) => mergeServerMessage(current, result.message));
       } catch (error) {
-        setMessages((current) =>
+        updateMessagesFor(conversationId, (current) =>
           current.map((message) =>
             message.clientId === clientId ? { ...message, pending: false, failed: true } : message
           )
@@ -217,14 +246,14 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
         notify.error(error.message || 'Your message could not be sent');
       }
     },
-    [applyConversationPreview, notify, user.id]
+    [applyConversationPreview, notify, updateMessagesFor, userId]
   );
 
   const retryMessage = useCallback(
     async (message) => {
       const conversationId = message.conversationId || activeIdRef.current;
       if (!conversationId) return;
-      setMessages((current) =>
+      updateMessagesFor(conversationId, (current) =>
         current.map((item) =>
           item.clientId === message.clientId ? { ...item, failed: false, pending: true } : item
         )
@@ -241,9 +270,10 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
               text: message.text,
               clientId: message.clientId
             });
-        setMessages((current) => mergeServerMessage(current, result.message));
+        if (!result?.message) throw new Error('The server did not return the saved message');
+        updateMessagesFor(conversationId, (current) => mergeServerMessage(current, result.message));
       } catch (error) {
-        setMessages((current) =>
+        updateMessagesFor(conversationId, (current) =>
           current.map((item) =>
             item.clientId === message.clientId ? { ...item, pending: false, failed: true } : item
           )
@@ -251,10 +281,9 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
         notify.error(error.message || 'Still could not send that message');
       }
     },
-    [notify]
+    [notify, updateMessagesFor]
   );
 
-  // ---------------------------------------------------------- conversations
   const startConversation = useCallback(
     async (peer) => {
       const data = await api.startConversation(peer.id);
@@ -275,18 +304,19 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
     async (conversationId) => {
       await api.hideConversation(conversationId);
       setConversations((current) => current.filter((item) => item.id !== conversationId));
-      if (activeIdRef.current === conversationId) closeConversation();
+      cacheRef.current.delete(conversationId);
+      if (idsEqual(activeIdRef.current, conversationId)) closeConversation();
       notify.success('Conversation removed from your list');
     },
     [closeConversation, notify]
   );
 
   const blockPeer = useCallback(
-    async (userId) => {
-      await api.blockUser(userId);
+    async (userToBlock) => {
+      await api.blockUser(userToBlock);
       setConversations((current) =>
         current.map((conversation) =>
-          conversation.peer?.id === userId ? { ...conversation, blockedByMe: true } : conversation
+          conversation.peer?.id === userToBlock ? { ...conversation, blockedByMe: true } : conversation
         )
       );
       notify.success('User blocked');
@@ -295,11 +325,11 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
   );
 
   const unblockPeer = useCallback(
-    async (userId) => {
-      await api.unblockUser(userId);
+    async (userToUnblock) => {
+      await api.unblockUser(userToUnblock);
       setConversations((current) =>
         current.map((conversation) =>
-          conversation.peer?.id === userId ? { ...conversation, blockedByMe: false } : conversation
+          conversation.peer?.id === userToUnblock ? { ...conversation, blockedByMe: false } : conversation
         )
       );
       notify.success('User unblocked');
@@ -307,15 +337,14 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
     [notify]
   );
 
-  const setConversationBlockState = useCallback((userId, blocked) => {
+  const setConversationBlockState = useCallback((targetUserId, blocked) => {
     setConversations((current) =>
       current.map((conversation) =>
-        conversation.peer?.id === userId ? { ...conversation, blockedByMe: blocked } : conversation
+        conversation.peer?.id === targetUserId ? { ...conversation, blockedByMe: blocked } : conversation
       )
     );
   }, []);
 
-  // ------------------------------------------------------------- typing
   const notifyTyping = useCallback(() => {
     const conversationId = activeIdRef.current;
     if (!conversationId || !socketRef.current?.connected) return;
@@ -328,9 +357,8 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
     socketRef.current.emit('typing:stop', { conversationId });
   }, []);
 
-  // -------------------------------------------------------------- socket
   useEffect(() => {
-    if (!user) return undefined;
+    if (!userId) return undefined;
     mountedRef.current = true;
 
     const socket = createSocket(getAccessToken);
@@ -349,11 +377,11 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
     };
 
     const retryFailed = (conversationId) => {
-      const failed = failedMessagesRef.current.filter(
-        (message) => message.conversationId === conversationId
+      const failed = failedMessagesRef.current.filter((message) =>
+        idsEqual(message.conversationId, conversationId)
       );
       for (const message of failed) {
-        setMessages((current) =>
+        updateMessagesFor(conversationId, (current) =>
           current.map((item) =>
             item.clientId === message.clientId ? { ...item, failed: false, pending: true } : item
           )
@@ -362,14 +390,12 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
           'message:send',
           { conversationId, text: message.text, clientId: message.clientId },
           (response) => {
-            if (response?.ok) {
-              setMessages((current) => mergeServerMessage(current, response.message));
+            if (response?.ok && response.message) {
+              updateMessagesFor(conversationId, (current) => mergeServerMessage(current, response.message));
             } else {
-              setMessages((current) =>
+              updateMessagesFor(conversationId, (current) =>
                 current.map((item) =>
-                  item.clientId === message.clientId
-                    ? { ...item, pending: false, failed: true }
-                    : item
+                  item.clientId === message.clientId ? { ...item, pending: false, failed: true } : item
                 )
               );
             }
@@ -384,20 +410,10 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
       await loadConversations();
       if (!active) return;
       socket.emit('conversation:join', { conversationId: active }, () => {});
-      // Re-sync anything missed while offline (the server is the source of truth).
       try {
         const data = await api.listMessages(active, { limit: PAGE_SIZE });
         if (activeIdRef.current !== active) return;
-        setMessages((current) => {
-          const unsent = current.filter(
-            (message) =>
-              (message.failed || message.pending) &&
-              !data.messages.some((server) => server.clientId === message.clientId)
-          );
-          const merged = [...data.messages, ...unsent];
-          merged.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-          return merged;
-        });
+        updateMessagesFor(active, (current) => reconcileMessages(current, data.messages, active));
         markRead(active);
         retryFailed(active);
       } catch {
@@ -412,31 +428,28 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
     const onConnectError = () => setConnectionState('reconnecting');
 
     const onMessageNew = ({ message, conversationId }) => {
-      const isActive = activeIdRef.current === conversationId;
-      const fromMe = message.senderId === user.id;
+      const threadId = conversationId || message?.conversationId;
+      if (!message || !threadId) return;
+
+      const isActive = idsEqual(activeIdRef.current, threadId);
+      const fromMe = idsEqual(message.senderId, userId);
       const visible = document.visibilityState === 'visible';
       const readingNow = isActive && visible && !fromMe;
 
-      if (isActive) {
-        setMessages((current) => mergeServerMessage(current, message));
-      }
+      updateMessagesFor(threadId, (current) => mergeServerMessage(current, message));
 
       if (!fromMe) {
-        // The message reached a live client, so report it as delivered. When the
-        // thread is open and visible it is marked read instead (which implies
-        // delivery and also clears the server-side unread counter).
-        socket.emit(readingNow ? 'message:read' : 'message:delivered', { conversationId }, () => {});
+        socket.emit(readingNow ? 'message:read' : 'message:delivered', { conversationId: threadId }, () => {});
         if (readingNow) {
           setConversations((current) =>
-            current.map((item) => (item.id === conversationId ? { ...item, unreadCount: 0 } : item))
+            current.map((item) => (item.id === threadId ? { ...item, unreadCount: 0 } : item))
           );
         }
       }
 
       setConversations((current) => {
-        const index = current.findIndex((item) => item.id === conversationId);
+        const index = current.findIndex((item) => item.id === threadId);
         if (index === -1) {
-          // A conversation we did not know about yet (e.g. someone new messaged us).
           loadConversations();
           return current;
         }
@@ -456,8 +469,8 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
       });
 
       if (!isActive && !fromMe) {
-        clearTyping(conversationId);
-        const conversation = conversationsRef.current.find((item) => item.id === conversationId);
+        clearTyping(threadId);
+        const conversation = conversationsRef.current.find((item) => item.id === threadId);
         browserNotificationRef.current?.({
           conversation,
           message,
@@ -475,10 +488,10 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
 
     const onTypingStop = ({ conversationId }) => clearTyping(conversationId);
 
-    const onPresence = ({ userId, online, lastSeen }) => {
+    const onPresence = ({ userId: peerId, online, lastSeen }) => {
       setConversations((current) =>
         current.map((conversation) =>
-          conversation.peer?.id === userId
+          conversation.peer?.id === peerId
             ? {
                 ...conversation,
                 peer: {
@@ -493,29 +506,27 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
     };
 
     const onReadReceipt = ({ conversationId, readAt }) => {
-      setMessages((current) =>
-        current.map((message) =>
-          message.conversationId === conversationId && message.senderId === user.id && !message.readAt
-            ? { ...message, readAt, deliveredAt: message.deliveredAt || readAt }
-            : message
-        )
+      updateMessagesFor(conversationId, (current) =>
+        applyConversationReceipt(current, { conversationId, viewerId: userId, readAt })
       );
     };
 
     const onDeliveredReceipt = ({ conversationId, deliveredAt }) => {
-      setMessages((current) =>
-        current.map((message) =>
-          message.conversationId === conversationId && message.senderId === user.id && !message.deliveredAt
-            ? { ...message, deliveredAt }
-            : message
-        )
+      updateMessagesFor(conversationId, (current) =>
+        applyConversationReceipt(current, { conversationId, viewerId: userId, deliveredAt })
       );
     };
 
-    const onBlockChanged = ({ userId, blocked, byMe }) => {
+    const onUnread = ({ conversationId, unreadCount }) => {
+      setConversations((current) =>
+        current.map((item) => (item.id === conversationId ? { ...item, unreadCount } : item))
+      );
+    };
+
+    const onBlockChanged = ({ userId: peerId, blocked, byMe }) => {
       setConversations((current) =>
         current.map((conversation) =>
-          conversation.peer?.id === userId
+          conversation.peer?.id === peerId
             ? {
                 ...conversation,
                 ...(byMe ? { blockedByMe: Boolean(blocked) } : { blockedMe: Boolean(blocked) })
@@ -535,6 +546,7 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
     socket.on('presence:update', onPresence);
     socket.on('message:read', onReadReceipt);
     socket.on('receipt:delivered', onDeliveredReceipt);
+    socket.on('conversation:unread', onUnread);
     socket.on('block:changed', onBlockChanged);
 
     setConnectionState('connecting');
@@ -549,10 +561,8 @@ export function useChatWorkspace({ user, notify, onBrowserNotification }) {
       socket.disconnect();
       socketRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
+  }, [userId, loadConversations, markRead, updateMessagesFor]);
 
-  // Mark the open conversation as read when the tab becomes visible again.
   useEffect(() => {
     function onVisibilityChange() {
       if (document.visibilityState === 'visible' && activeIdRef.current) {

@@ -7,7 +7,7 @@ function ConversationItemComponent({ conversation, isActive, isTyping, viewerId,
   const { peer, lastMessage, unreadCount, lastMessageAt, blockedByMe, blockedMe } = conversation;
   const isUnread = unreadCount > 0;
   const previewText = (() => {
-    if (!lastMessage) return blockedByMe ? 'You blocked this person' : 'Say hello 👋';
+    if (!lastMessage) return blockedByMe ? 'You blocked this person' : 'Start the conversation';
     if (lastMessage.senderId === viewerId) {
       return `You: ${truncate(lastMessage.text, 64)}`;
     }

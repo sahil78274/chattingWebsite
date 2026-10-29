@@ -4,6 +4,12 @@
  * versions or raw store internals.
  */
 
+function toIso(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
 export function initialsFor(user) {
   const source = String(user?.displayName || user?.username || '?').trim();
   if (!source) return '?';
@@ -63,15 +69,18 @@ export function conversationSummary(conversation, { viewerId, otherUser, blocked
 
 export function messagePayload(message) {
   if (!message) return null;
+  const deliveredAt = toIso(message.deliveredAt);
+  const readAt = toIso(message.readAt);
   return {
     id: message._id || message.id,
-    conversationId: message.conversation,
+    conversationId: message.conversation || message.conversationId,
     senderId: message.sender || message.senderId,
     text: message.text,
     clientId: message.clientId || null,
-    createdAt: message.createdAt,
-    deliveredAt: message.deliveredAt || null,
-    readAt: message.readAt || null
+    createdAt: toIso(message.createdAt) || message.createdAt,
+    deliveredAt,
+    readAt,
+    status: readAt ? 'read' : deliveredAt ? 'delivered' : 'sent'
   };
 }
 

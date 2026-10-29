@@ -78,8 +78,14 @@ export async function send(req, res) {
   });
 
   if (!result.duplicate) {
-    // Mirror the socket broadcast for clients that fell back to REST.
-    req.app.get('io')?.emitDirectMessage(result, req.user._id);
+    // Mirror the socket broadcast for clients that fell back to REST, including
+    // delivery receipts when the recipient already has a live session.
+    const io = req.app.get('io');
+    if (typeof io?.finalizeAndDeliver === 'function') {
+      await io.finalizeAndDeliver(result);
+    } else {
+      io?.emitDirectMessage(result);
+    }
   }
   res.status(201).json({
     message: result.message,
