@@ -155,3 +155,81 @@
   .overlay { padding: 0; align-items: flex-end; }
   .modal { max-width: none; max-height: 92dvh; border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
 }
+
+/* ---------------------------------------------------------------- admin panel */
+.admin-page__top-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.admin-identity {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 12px 14px; border-radius: var(--radius-lg); background: var(--bg-canvas);
+  border: 1px solid var(--border-subtle);
+}
+.admin-identity__meta { display: grid; gap: 2px; font-size: 13px; }
+.admin-identity .badge-soft { margin-left: auto; }
+.admin-tabs {
+  display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.admin-tab {
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  padding: 8px 12px; border-radius: var(--radius-pill); border: 1px solid transparent;
+  background: transparent; color: var(--text-secondary); font-size: 13px; font-weight: 600;
+  cursor: pointer;
+}
+.admin-tab:hover { background: var(--bg-hover); color: var(--text-primary); }
+.admin-tab--active { background: var(--accent-soft); color: var(--brand-600); border-color: rgba(79,70,229,0.2); }
+.admin-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 22px; }
+.admin-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.admin-list li { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.admin-list li > span:nth-child(2) { display: grid; flex: 1; min-width: 0; }
+.admin-list li > span:nth-child(2) strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-empty {
+  margin: 0; padding: 18px; text-align: center; font-size: 13px; color: var(--text-muted);
+  border: 1px dashed var(--border-subtle); border-radius: var(--radius-md);
+}
+.admin-note { margin: 0; font-size: 12.5px; line-height: 1.55; }
+.admin-pager {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  font-size: 12.5px;
+}
+.admin-pager__buttons { display: flex; gap: 6px; }
+.admin-pager .btn { display: inline-flex; align-items: center; gap: 4px; }
+.admin-pill {
+  display: inline-flex; align-items: center; padding: 2px 8px; border-radius: var(--radius-pill);
+  font-size: 11.5px; font-weight: 600; text-transform: capitalize;
+  background: var(--bg-raised); color: var(--text-secondary);
+}
+.admin-pill--active,
+.admin-pill--reviewed { background: var(--success-soft); color: #14532d; }
+.admin-pill--suspended,
+.admin-pill--open { background: var(--danger-soft); color: #991b1b; }
+.admin-pill--deleted,
+.admin-pill--closed { background: var(--bg-raised); color: var(--text-muted); }
+.admin-report-details {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  max-width: 240px; word-break: break-word; font-size: 12.5px;
+}
+.admin-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 12px; align-items: end; }
+.admin-form__actions { display: flex; align-items: end; }
+.admin-summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+.admin-profile { display: flex; align-items: flex-start; gap: 18px; flex-wrap: wrap; }
+.admin-profile__details { flex: 1; min-width: 240px; display: grid; gap: 2px; }
+.admin-profile__row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 9px 0; border-bottom: 1px solid var(--border-subtle); font-size: 13px;
+}
+.admin-profile__row:last-child { border-bottom: none; }
+.admin-profile__row strong { text-align: right; word-break: break-word; }
+.admin-profile__actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+@media (max-width: 720px) {
+  .admin-page__top { padding: 12px 14px; flex-wrap: wrap; }
+  .admin-page__body { padding: 18px 12px 48px; gap: 18px; }
+  .admin-panel { padding: 14px; }
+  .admin-col-email { display: none; }
+  .admin-table th, .admin-table td { padding: 8px 6px; }
+  .admin-identity .badge-soft { margin-left: 0; }
+  .admin-report-details { max-width: 150px; }
+  .admin-pager { flex-direction: column; align-items: stretch; }
+  .admin-pager__buttons { justify-content: space-between; }
+  .audit-list li { grid-template-columns: 1fr auto; }
+}

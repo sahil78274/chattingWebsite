@@ -1,7 +1,10 @@
 import ApiError from '../utils/ApiError.js';
 import { getStore } from '../store/index.js';
+import { selfUser } from '../utils/serialize.js';
 import {
   adminCreateUserSchema,
+  adminReportQuerySchema,
+  adminReportStatusSchema,
   adminRoleSchema,
   adminSearchSchema,
   adminStatusSchema,
@@ -12,7 +15,9 @@ import {
   adminOverview,
   createAdminUser,
   listAdminUsers,
+  listAdminReports,
   listAudit,
+  setReportStatus,
   setUserRole,
   setUserStatus
 } from '../services/adminService.js';
@@ -20,6 +25,11 @@ import {
 export async function overview(req, res) {
   const data = await adminOverview(getStore());
   res.json(data);
+}
+
+/** Details of the signed-in administrator (server-verified, never from the request body). */
+export async function profile(req, res) {
+  res.json({ user: selfUser(req.user) });
 }
 
 export async function users(req, res) {
@@ -48,6 +58,19 @@ export async function updateRole(req, res) {
   res.json({ user });
 }
 
+export async function reports(req, res) {
+  const query = parseOrThrow(adminReportQuerySchema, req.query, ApiError);
+  const data = await listAdminReports(getStore(), query);
+  res.json(data);
+}
+
+export async function updateReport(req, res) {
+  const reportId = parseId(req.params.reportId, ApiError);
+  const { status } = parseOrThrow(adminReportStatusSchema, req.body, ApiError);
+  const report = await setReportStatus(getStore(), req.user._id, reportId, status);
+  res.json({ report });
+}
+
 export async function audit(req, res) {
   const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
   const limit = Math.min(50, Math.max(1, Number.parseInt(req.query.limit, 10) || 30));
@@ -55,4 +78,14 @@ export async function audit(req, res) {
   res.json(data);
 }
 
-export default { overview, users, createUser, updateStatus, updateRole, audit };
+export default {
+  overview,
+  profile,
+  users,
+  createUser,
+  updateStatus,
+  updateRole,
+  reports,
+  updateReport,
+  audit
+};

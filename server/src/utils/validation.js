@@ -173,6 +173,16 @@ export const adminRoleSchema = z.object({
   role: z.enum(['user', 'admin'])
 });
 
+export const adminReportQuerySchema = z.object({
+  status: z.enum(['open', 'reviewed', 'closed', 'all']).optional().default('open'),
+  page: z.coerce.number().int().min(1).max(200).default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(20)
+});
+
+export const adminReportStatusSchema = z.object({
+  status: z.enum(['open', 'reviewed', 'closed'])
+});
+
 export const forgotPasswordSchema = z.object({ email: emailSchema });
 
 export const resetPasswordSchema = z

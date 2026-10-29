@@ -411,6 +411,31 @@ export class MemoryStore {
     return [...this.users.values()].filter((u) => u.role === 'admin' && (u.status || 'active') === 'active').length;
   }
 
+  async countConversations() {
+    return this.conversations.size;
+  }
+
+  async countMessages() {
+    return this.messages.size;
+  }
+
+  async countBlocks() {
+    return this.blocks.size;
+  }
+
+  async listRecentRegistrations({ limit = 8 } = {}) {
+    const users = [...this.users.values()]
+      .filter((user) => (user.status || 'active') !== 'deleted')
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    return clone(users.slice(0, limit));
+  }
+
+  async findUsersByIds(ids = []) {
+    const wanted = new Set(ids.map(String));
+    if (!wanted.size) return [];
+    return clone([...this.users.values()].filter((user) => wanted.has(String(user._id))));
+  }
+
   async createAuditLog(data) {
     const id = newId();
     const log = { _id: id, createdAt: new Date(), metadata: {}, ...clone(data) };
@@ -477,6 +502,38 @@ export class MemoryStore {
     };
     this.reports.set(id, report);
     return clone(report);
+  }
+
+  async listReports({ status = 'all', limit = 20, offset = 0 } = {}) {
+    const reports = [...this.reports.values()]
+      .filter((report) => (status && status !== 'all' ? (report.status || 'open') === status : true))
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    return {
+      reports: clone(reports.slice(offset, offset + limit)),
+      total: reports.length
+    };
+  }
+
+  async findReportById(id) {
+    return clone(this.reports.get(id) || null);
+  }
+
+  async updateReport(id, patch) {
+    const report = this.reports.get(id);
+    if (!report) return null;
+    const next = { ...report, ...clone(patch), updatedAt: new Date() };
+    this.reports.set(id, next);
+    return clone(next);
+  }
+
+  async countReportsByStatus() {
+    const reports = [...this.reports.values()];
+    return {
+      total: reports.length,
+      open: reports.filter((report) => (report.status || 'open') === 'open').length,
+      reviewed: reports.filter((report) => report.status === 'reviewed').length,
+      closed: reports.filter((report) => report.status === 'closed').length
+    };
   }
 
   // ---------------------------------------------------------- refresh tokens

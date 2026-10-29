@@ -82,9 +82,11 @@ presence, typing indicators, blocking and reporting.
 ### Extras (really implemented, not static buttons)
 - Typing indicators, online/offline presence, last-seen privacy.
 - Dark (`#000000`) and light themes only, FOUC-safe, persisted in localStorage.
-- Administrator dashboard (`/app/admin`) for accounts with `role: admin`. Bootstrap an existing
-  user with `BOOTSTRAP_ADMIN_USERNAME` or `BOOTSTRAP_ADMIN_EMAIL` — there is no hardcoded password
-  and ordinary users cannot promote themselves.
+- Administrator dashboard (`/admin`, with `/app/admin` kept as a legacy alias) for accounts with
+  `role: admin`: live counts, recent registrations, user search/pagination, suspend/reactivate,
+  report moderation and an audit log. Bootstrap an existing user with `BOOTSTRAP_ADMIN_USERNAME` or
+  `BOOTSTRAP_ADMIN_EMAIL` — there is no hardcoded password, no public admin signup and ordinary users
+  cannot promote themselves.
 - Browser notifications with explicit permission handling.
 - Avatar image upload (local disk on the API by default — see [uploads](#image-uploads)).
 - Block / unblock users (server-enforced in both directions) and report a user.
@@ -287,7 +289,7 @@ without the required secrets. Copy `.env.example` → `.env` in `server/` and `c
 | `UPLOAD_DIR` | `server/uploads` | no | Development fallback only. Render wipes this on deploy. |
 | `S3_BUCKET` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | – | for durable avatars on Render | Optional S3-compatible storage. If unset, avatars go to GridFS when Mongo is connected. |
 | `S3_REGION` / `S3_ENDPOINT` / `S3_PUBLIC_BASE_URL` | `auto` / – / – | with S3 | R2/MinIO: set `S3_ENDPOINT` and a public URL. |
-| `BOOTSTRAP_ADMIN_USERNAME` / `BOOTSTRAP_ADMIN_EMAIL` | – | to create the first admin | Promotes an **existing** account on boot. Never put a password here. |
+| `BOOTSTRAP_ADMIN_USERNAME` / `BOOTSTRAP_ADMIN_EMAIL` | – | to create the first admin | Promotes an **existing** account on boot, but only while no active administrator exists. Never put a password here. Clear it after the first boot. |
 | `ALLOW_MEMORY_STORE` | `false` | no | Production refuses the in-memory store unless this is true. |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` / `SMTP_USER` / `SMTP_PASS` / `MAIL_FROM` | – | for password reset emails | Without these the reset link is only exposed in dev. |
 | `SEED_DEMO` | `false` | no | Creates demo accounts on boot (never in production). |
@@ -374,14 +376,45 @@ or the SPA cookie. Errors always return `{ "error": { "message": "...", "code": 
 | GET | `/config` | – | Brand, limits, whether email is configured |
 
 ### Admin (role `admin` only)
+
+Every route below is mounted behind `requireAuth` + `requireAdmin`: an anonymous request gets `401`
+and a signed-in non-admin gets `403`, regardless of what the SPA displays. The role is always read
+from the database record, never from the request body, a header or local storage.
+
 | Method | Path | Auth | Description |
 | --- | --- | --- | --- |
-| GET | `/admin/overview` | admin | Account counts + recent audit |
-| GET | `/admin/users?q=&status=&page=` | admin | Search including emails |
+| GET | `/admin/overview` | admin | Real counts (users, conversations, messages, reports) + recent registrations and audit |
+| GET | `/admin/me` | admin | The signed-in administrator's own account details |
+| GET | `/admin/users?q=&status=&page=&limit=` | admin | Server-side search (username, display name, exact email), status filter and pagination |
 | POST | `/admin/users` | admin | Create a user |
-| PATCH | `/admin/users/:id/status` | admin | `active` / `suspended` / `deleted` |
+| PATCH | `/admin/users/:id/status` | admin | `active` / `suspended` / `deleted` (revokes sessions; protects the last admin and yourself) |
 | PATCH | `/admin/users/:id/role` | admin | `user` / `admin` (not self, not last admin) |
-| GET | `/admin/audit` | admin | Audit log |
+| GET | `/admin/reports?status=&page=&limit=` | admin | Report queue: reporter, reported user, reason, the reporter's own details — never message text |
+| PATCH | `/admin/reports/:id` | admin | Set report status to `open` / `reviewed` / `closed` (audited) |
+| GET | `/admin/audit?page=&limit=` | admin | Audit log of every administrative action |
+
+#### Creating the first administrator (development)
+
+1. Register the account normally through `/register` (e.g. username `owner`). Signing up can never
+   grant admin: `role` and `status` are server defaults.
+2. In `server/.env` set exactly one of:
+   ```bash
+   BOOTSTRAP_ADMIN_USERNAME=owner
+   # or
+   BOOTSTRAP_ADMIN_EMAIL=owner@example.com
+   ```
+3. Restart the API (`npm run dev:server`). The boot log prints `Bootstrapped administrator from
+   environment`. Promotion only happens while the deployment has **no active administrator**, so the
+   variable is safe to leave in place but is best removed after the first boot.
+4. Sign in as that account and open `/admin`.
+
+#### Creating the first administrator (production)
+
+Register the account on the live site, add `BOOTSTRAP_ADMIN_USERNAME` (or
+`BOOTSTRAP_ADMIN_EMAIL`) to the API service environment (Render → Environment), redeploy/restart
+once, confirm the log line, then remove the variable. No database migration is required: `role`,
+`status` and `tokenVersion` already have defaults, and the audit trail lives in the new `auditlogs`
+collection (created automatically by Mongoose on first write).
 
 ---
 
@@ -422,7 +455,7 @@ top of the REST limiter, and every handler validates its input with Zod.
 
 ```bash
 cd server
-npm test            # auth, messaging, receipts, reactions, admin, avatars (in-memory store)
+npm test            # auth, messaging, receipts, reactions, admin, moderation, avatars (in-memory store)
 npm run test:mongo  # same suite against MongoDB (needs MONGODB_URI)
 ```
 

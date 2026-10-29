@@ -347,7 +347,7 @@ export function ChatPage() {
           <div className="sidebar__actions">
             <ThemeToggle />
             {user.role === 'admin' ? (
-              <Link to="/app/admin" className="icon-btn" title="Admin dashboard" aria-label="Open admin dashboard">
+              <Link to="/admin" className="icon-btn" title="Admin dashboard" aria-label="Open admin dashboard">
                 <Shield size={18} />
               </Link>
             ) : null}
