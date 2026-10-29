@@ -69,6 +69,8 @@ describe('Registration', () => {
       confirmPassword: STRONG_PASSWORD
     });
     assert.equal(duplicateName.status, 409);
+    assert.equal(duplicateName.body.error.message, 'This username is already taken.');
+    assert.equal(duplicateName.body.error.details.username, 'This username is already taken.');
 
     const duplicateEmail = await request(ctx.url).post('/api/auth/register').send({
       username: 'another_person',

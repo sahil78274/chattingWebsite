@@ -50,27 +50,18 @@ export function EditProfileModal({ onClose }) {
       if (file) {
         const uploaded = await api.uploadAvatar(file);
         updatedUser = uploaded.user;
-        notify.success('Profile picture updated');
         setFile(null);
-      } else {
-        const { user: next } = await api.updateProfile({
-          displayName: displayName.trim(),
-          bio: bio.trim(),
-          avatarColor
-        });
-        updatedUser = next;
-        notify.success('Profile updated');
+      } else if (!previewUrl && (user.avatarUrl || avatarColor !== user.avatarColor)) {
+        const colored = await api.setAvatarColor(avatarColor);
+        updatedUser = colored.user;
       }
-      // Persist text fields too when an avatar was uploaded in the same step.
-      if (file && (displayName.trim() !== user.displayName || bio.trim() !== user.bio)) {
-        const { user: finalUser } = await api.updateProfile({
-          displayName: displayName.trim(),
-          bio: bio.trim(),
-          avatarColor
-        });
-        updatedUser = finalUser;
-      }
+      const { user: next } = await api.updateProfile({
+        displayName: displayName.trim(),
+        bio: bio.trim()
+      });
+      updatedUser = next;
       updateUser(updatedUser);
+      notify.success('Profile updated');
       onClose();
     } catch (error) {
       setErrors(error.details || {});

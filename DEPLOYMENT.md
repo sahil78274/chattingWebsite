@@ -68,9 +68,19 @@ curl https://connectly-api.onrender.com/api/health
 `driver` must be `mongo`. If it says `memory`, `MONGODB_URI` is missing and data will not persist.
 
 ### Persistent uploads
-`server/uploads` is ephemeral on Render. Either:
-- attach a Render disk (mount path e.g. `/var/connectly/uploads`) and set `UPLOAD_DIR=/var/connectly/uploads`, or
-- switch `server/src/middleware/upload.js` to S3/Cloudinary and store the returned URL in `avatarUrl`.
+`server/uploads` is ephemeral on Render. Avatars are stored in this order:
+
+1. **S3-compatible object storage** when `S3_BUCKET`, `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` are set
+   (Cloudflare R2, AWS S3, MinIO). Also set `S3_PUBLIC_BASE_URL` so the SPA can load the image.
+2. **MongoDB GridFS** (`avatars` bucket) when the API is connected to Atlas — no extra service required.
+3. Local disk (`UPLOAD_DIR`) for development only.
+
+Never put object-storage keys in `VITE_*` variables.
+
+### First administrator
+Register the account through the normal signup form, then set `BOOTSTRAP_ADMIN_USERNAME` (or
+`BOOTSTRAP_ADMIN_EMAIL`) on the API and restart. The process promotes that existing user. There is no
+hardcoded admin password.
 
 ### Free plan caveat
 Render free instances sleep after inactivity; the first request after sleeping takes ~30 s and open

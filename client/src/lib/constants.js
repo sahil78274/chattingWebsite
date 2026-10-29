@@ -21,3 +21,5 @@ export const REPORT_REASONS = [
 ];
 
 export const MAX_MESSAGE_LENGTH = 4000;
+
+export const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '🎉', '👏', '💯'];

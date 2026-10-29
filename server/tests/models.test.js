@@ -60,6 +60,8 @@ describe('User model', () => {
     assert.equal(user.bio, '');
     assert.equal(user.privacy.lastSeen, 'everyone');
     assert.equal(user.presence.online, false);
+    assert.equal(user.role, 'user');
+    assert.equal(user.status, 'active');
     assert.ok(AVATAR_COLOR_OPTIONS.includes(user.avatarColor));
   });
 
@@ -143,9 +145,13 @@ describe('Message model', () => {
       'clientId',
       'conversationId',
       'createdAt',
+      'deletedAt',
       'deliveredAt',
+      'editedAt',
       'id',
+      'reactions',
       'readAt',
+      'replyTo',
       'senderId',
       'text'
     ]);

@@ -1,6 +1,6 @@
 import ApiError from '../utils/ApiError.js';
 import { newId, pairKeyFor } from '../utils/ids.js';
-import { MESSAGE_MAX_LENGTH } from '../models/Message.js';
+import { MESSAGE_MAX_LENGTH, REACTION_EMOJIS } from '../models/Message.js';
 import { sanitizeText } from '../utils/validation.js';
 import { conversationSummary, messagePayload, publicUser } from '../utils/serialize.js';
 import logger from '../utils/logger.js';
@@ -120,11 +120,20 @@ export async function getConversationPayload(store, conversationId, userId) {
 
 export async function listMessages(store, { conversationId, userId, before, beforeId, limit = 30 }) {
   await loadConversationForUser(store, conversationId, userId);
-  const messages = await store.listMessages({ conversationId, limit, before, beforeId });
-  return messages.map(messagePayload);
+  const messages = await store.listMessages({ conversationId, limit, before, beforeId, viewerId: userId });
+  return messages.map((message) => messagePayload(message, { viewerId: userId }));
 }
 
-export async function createMessage(store, { conversationId, senderId, text, clientId }) {
+async function loadOwnMessage(store, { conversationId, messageId, userId }) {
+  await loadConversationForUser(store, conversationId, userId);
+  const message = await store.findMessageById(messageId);
+  if (!message || message.conversation !== conversationId) {
+    throw ApiError.notFound('Message not found', { code: 'MESSAGE_NOT_FOUND' });
+  }
+  return message;
+}
+
+export async function createMessage(store, { conversationId, senderId, text, clientId, replyToId }) {
   const conversation = await loadConversationForUser(store, conversationId, senderId);
   const recipient = conversation.participants.find((p) => p.user !== senderId);
   if (!recipient) throw ApiError.badRequest('Conversation has no recipient');
@@ -144,8 +153,19 @@ export async function createMessage(store, { conversationId, senderId, text, cli
   if (clientId) {
     const existing = await store.findMessageByClientId({ conversationId, senderId, clientId });
     if (existing) {
-      // Idempotent retry: return the already stored message, do not re-broadcast.
-      return { message: messagePayload(existing), conversation, duplicate: true };
+      return { message: messagePayload(existing, { viewerId: senderId }), conversation, duplicate: true };
+    }
+  }
+
+  let replyTo = null;
+  if (replyToId) {
+    const original = await store.findMessageById(replyToId);
+    if (original && original.conversation === conversationId && !original.deletedAt) {
+      replyTo = {
+        id: original._id,
+        senderId: original.sender,
+        text: String(original.text || '').slice(0, 140)
+      };
     }
   }
 
@@ -155,12 +175,15 @@ export async function createMessage(store, { conversationId, senderId, text, cli
       conversation: conversationId,
       sender: senderId,
       text: cleanText,
-      clientId: clientId || null
+      clientId: clientId || null,
+      replyTo
     });
   } catch (error) {
     if (error.name === 'UniqueViolationError' && clientId) {
       const existing = await store.findMessageByClientId({ conversationId, senderId, clientId });
-      if (existing) return { message: messagePayload(existing), conversation, duplicate: true };
+      if (existing) {
+        return { message: messagePayload(existing, { viewerId: senderId }), conversation, duplicate: true };
+      }
     }
     throw error;
   }
@@ -172,11 +195,97 @@ export async function createMessage(store, { conversationId, senderId, text, cli
   });
 
   return {
-    message: messagePayload(message),
+    message: messagePayload(message, { viewerId: senderId }),
     conversation: updated || conversation,
     duplicate: false,
     recipientId: recipient.user
   };
+}
+
+export async function editMessage(store, { conversationId, messageId, userId, text }) {
+  const message = await loadOwnMessage(store, { conversationId, messageId, userId });
+  if (message.sender !== userId) {
+    throw ApiError.forbidden('You can only edit your own messages', { code: 'NOT_MESSAGE_OWNER' });
+  }
+  if (message.deletedAt) throw ApiError.badRequest('Deleted messages cannot be edited', { code: 'MESSAGE_DELETED' });
+  const cleanText = sanitizeText(text);
+  if (!cleanText) throw ApiError.badRequest('Message cannot be empty', { code: 'EMPTY_MESSAGE' });
+  if (cleanText.length > MESSAGE_MAX_LENGTH) {
+    throw ApiError.badRequest(`Message must be at most ${MESSAGE_MAX_LENGTH} characters`, {
+      code: 'MESSAGE_TOO_LONG'
+    });
+  }
+  const updated = await store.updateMessage(messageId, { text: cleanText, editedAt: new Date() });
+  await syncConversationPreview(store, conversationId, messageId, cleanText);
+  return { message: messagePayload(updated, { viewerId: userId }), conversationId };
+}
+
+async function syncConversationPreview(store, conversationId, messageId, text) {
+  const conversation = await store.findConversationById(conversationId);
+  if (!conversation?.lastMessage) return;
+  if (String(conversation.lastMessage.messageId || '') !== String(messageId)) return;
+  await store.updateConversation(conversationId, {
+    lastMessage: {
+      ...conversation.lastMessage,
+      text: String(text || '').slice(0, 160)
+    }
+  });
+}
+
+export async function deleteMessage(store, { conversationId, messageId, userId, scope = 'me' }) {
+  const message = await loadOwnMessage(store, { conversationId, messageId, userId });
+  if (scope === 'everyone') {
+    if (message.sender !== userId) {
+      throw ApiError.forbidden('You can only delete everyone\'s copy of your own messages', {
+        code: 'NOT_MESSAGE_OWNER'
+      });
+    }
+    const updated = await store.updateMessage(messageId, {
+      text: '',
+      deletedAt: new Date(),
+      deletedBy: userId,
+      reactions: []
+    });
+    await syncConversationPreview(store, conversationId, messageId, '');
+    logger.info('Message deleted for everyone', { conversationId, messageId, userId });
+    return { message: messagePayload(updated, { viewerId: userId }), conversationId, scope: 'everyone' };
+  }
+
+  const deletedFor = [...new Set([...(message.deletedFor || []), userId])];
+  await store.updateMessage(messageId, { deletedFor });
+  return { messageId, conversationId, scope: 'me' };
+}
+
+export async function toggleReaction(store, { conversationId, messageId, userId, emoji }) {
+  if (!REACTION_EMOJIS.includes(emoji)) {
+    throw ApiError.badRequest('That reaction is not supported', { code: 'INVALID_REACTION' });
+  }
+  const message = await loadOwnMessage(store, { conversationId, messageId, userId });
+  if (message.deletedAt) {
+    throw ApiError.badRequest('Cannot react to a deleted message', { code: 'MESSAGE_DELETED' });
+  }
+  const current = Array.isArray(message.reactions) ? message.reactions : [];
+  const exists = current.some((reaction) => reaction.user === userId && reaction.emoji === emoji);
+  const reactions = exists
+    ? current.filter((reaction) => !(reaction.user === userId && reaction.emoji === emoji))
+    : [...current, { emoji, user: userId, createdAt: new Date() }];
+  const updated = await store.updateMessage(messageId, { reactions });
+  return { message: messagePayload(updated, { viewerId: userId }), conversationId };
+}
+
+export async function forwardMessage(store, { sourceConversationId, messageId, targetConversationId, userId, clientId }) {
+  const source = await loadOwnMessage(store, {
+    conversationId: sourceConversationId,
+    messageId,
+    userId
+  });
+  if (source.deletedAt) throw ApiError.badRequest('Cannot forward a deleted message', { code: 'MESSAGE_DELETED' });
+  return createMessage(store, {
+    conversationId: targetConversationId,
+    senderId: userId,
+    text: source.text,
+    clientId
+  });
 }
 
 export async function markConversationRead(store, { conversationId, userId }) {
@@ -247,5 +356,9 @@ export default {
   peerIdsForUser,
   searchUsersForViewer,
   hideConversation,
-  getPeer
+  getPeer,
+  editMessage,
+  deleteMessage,
+  toggleReaction,
+  forwardMessage
 };

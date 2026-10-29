@@ -43,9 +43,12 @@ export async function registerUser(store, { username, email, password }, meta = 
   const emailTaken = existing.some((row) => row.email === email.toLowerCase());
   if (usernameTaken || emailTaken) {
     const details = {};
-    if (usernameTaken) details.username = 'That username is already taken';
+    if (usernameTaken) details.username = 'This username is already taken.';
     if (emailTaken) details.email = 'An account with this email already exists';
-    throw new ApiError(409, 'That account already exists', { code: 'ACCOUNT_EXISTS', details });
+    throw new ApiError(409, usernameTaken ? 'This username is already taken.' : 'That account already exists', {
+      code: usernameTaken ? 'USERNAME_TAKEN' : 'ACCOUNT_EXISTS',
+      details
+    });
   }
 
   const passwordHash = await hashPassword(password);
@@ -82,6 +85,13 @@ export async function loginUser(store, { identifier, password }, meta = {}) {
   const ok = await verifyPassword(password, user.passwordHash);
   if (!ok) throw genericError;
 
+  if ((user.status || 'active') === 'suspended') {
+    throw ApiError.forbidden('This account has been suspended', { code: 'ACCOUNT_SUSPENDED' });
+  }
+  if ((user.status || 'active') === 'deleted') {
+    throw genericError;
+  }
+
   const tokens = await issueTokens(store, user, meta);
   return { user, ...tokens };
 }
@@ -104,9 +114,12 @@ export async function refreshSession(store, rawToken, meta = {}) {
   }
 
   const user = await store.findUserById(record.user);
-  if (!user) {
+  if (!user || (user.status || 'active') === 'deleted') {
     await store.revokeRefreshToken(record.tokenHash);
     throw ApiError.unauthorized('Account no longer exists', { code: 'INVALID_REFRESH' });
+  }
+  if ((user.status || 'active') === 'suspended') {
+    throw ApiError.forbidden('This account has been suspended', { code: 'ACCOUNT_SUSPENDED' });
   }
 
   const newValue = newRefreshTokenValue();

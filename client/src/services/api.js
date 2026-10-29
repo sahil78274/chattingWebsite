@@ -203,6 +203,39 @@ export const api = {
   markDelivered: (id) => apiRequest(`/conversations/${id}/delivered`, { method: 'POST' }),
   hideConversation: (id) => apiRequest(`/conversations/${id}`, { method: 'DELETE' }),
   listBlocks: () => apiRequest('/conversations/blocks'),
+  editMessage: (conversationId, messageId, text) =>
+    apiRequest(`/conversations/${conversationId}/messages/${messageId}`, {
+      method: 'PATCH',
+      body: { text }
+    }),
+  deleteMessage: (conversationId, messageId, scope = 'me') =>
+    apiRequest(`/conversations/${conversationId}/messages/${messageId}`, {
+      method: 'DELETE',
+      body: { scope }
+    }),
+  reactToMessage: (conversationId, messageId, emoji) =>
+    apiRequest(`/conversations/${conversationId}/messages/${messageId}/reactions`, {
+      method: 'POST',
+      body: { emoji }
+    }),
+  forwardMessage: (conversationId, messageId, targetConversationId, clientId) =>
+    apiRequest(`/conversations/${conversationId}/messages/${messageId}/forward`, {
+      method: 'POST',
+      body: { targetConversationId, clientId }
+    }),
+
+  adminOverview: () => apiRequest('/admin/overview'),
+  adminUsers: ({ q = '', page = 1, status = 'all' } = {}) => {
+    const params = new URLSearchParams({ q, page: String(page), status });
+    return apiRequest(`/admin/users?${params.toString()}`);
+  },
+  adminCreateUser: (payload) => apiRequest('/admin/users', { method: 'POST', body: payload }),
+  adminSetStatus: (userId, status) =>
+    apiRequest(`/admin/users/${userId}/status`, { method: 'PATCH', body: { status } }),
+  adminSetRole: (userId, role) =>
+    apiRequest(`/admin/users/${userId}/role`, { method: 'PATCH', body: { role } }),
+  adminAudit: (page = 1) => apiRequest(`/admin/audit?page=${page}`),
+
   getConfig: () => apiRequest('/config', { auth: false })
 };
 

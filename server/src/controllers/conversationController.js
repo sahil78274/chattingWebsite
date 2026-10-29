@@ -1,6 +1,15 @@
 import ApiError from '../utils/ApiError.js';
 import { getStore } from '../store/index.js';
-import { parseOrThrow, idSchema, sendMessageSchema, reportSchema } from '../utils/validation.js';
+import {
+  parseOrThrow,
+  idSchema,
+  sendMessageSchema,
+  reportSchema,
+  editMessageSchema,
+  deleteMessageSchema,
+  reactionSchema,
+  forwardMessageSchema
+} from '../utils/validation.js';
 import { publicUser, conversationSummary } from '../utils/serialize.js';
 import {
   createMessage,
@@ -12,7 +21,11 @@ import {
   listMessages,
   loadConversationForUser,
   markConversationDelivered,
-  markConversationRead
+  markConversationRead,
+  editMessage,
+  deleteMessage,
+  toggleReaction,
+  forwardMessage
 } from '../services/chatService.js';
 import config from '../config/env.js';
 
@@ -74,7 +87,8 @@ export async function send(req, res) {
     conversationId,
     senderId: req.user._id,
     text: body.text,
-    clientId: body.clientId
+    clientId: body.clientId,
+    replyToId: body.replyToId
   });
 
   if (!result.duplicate) {
@@ -195,12 +209,91 @@ export async function reportUser(req, res) {
   res.status(201).json({ ok: true, reportId: report._id, message: 'Report submitted. Our team will review it.' });
 }
 
+export async function edit(req, res) {
+  const conversationId = parseOrThrow(idSchema, req.params.conversationId, ApiError);
+  const messageId = parseOrThrow(idSchema, req.params.messageId, ApiError);
+  const body = parseOrThrow(editMessageSchema, req.body, ApiError);
+  const result = await editMessage(getStore(), {
+    conversationId,
+    messageId,
+    userId: req.user._id,
+    text: body.text
+  });
+  req.app.get('io')?.emitMessageUpdated?.(result);
+  res.json({ message: result.message });
+}
+
+export async function remove(req, res) {
+  const conversationId = parseOrThrow(idSchema, req.params.conversationId, ApiError);
+  const messageId = parseOrThrow(idSchema, req.params.messageId, ApiError);
+  const body = parseOrThrow(
+    deleteMessageSchema,
+    { scope: req.body?.scope || req.query?.scope || 'me' },
+    ApiError
+  );
+  const result = await deleteMessage(getStore(), {
+    conversationId,
+    messageId,
+    userId: req.user._id,
+    scope: body.scope
+  });
+  const io = req.app.get('io');
+  if (result.scope === 'everyone') io?.emitMessageUpdated?.(result);
+  else io?.emitMessageRemoved?.({ conversationId, messageId, userId: req.user._id });
+  res.json(result);
+}
+
+export async function react(req, res) {
+  const conversationId = parseOrThrow(idSchema, req.params.conversationId, ApiError);
+  const messageId = parseOrThrow(idSchema, req.params.messageId, ApiError);
+  const body = parseOrThrow(reactionSchema, req.body, ApiError);
+  const result = await toggleReaction(getStore(), {
+    conversationId,
+    messageId,
+    userId: req.user._id,
+    emoji: body.emoji
+  });
+  req.app.get('io')?.emitMessageUpdated?.(result);
+  res.json({ message: result.message });
+}
+
+export async function forward(req, res) {
+  const conversationId = parseOrThrow(idSchema, req.params.conversationId, ApiError);
+  const messageId = parseOrThrow(idSchema, req.params.messageId, ApiError);
+  const body = parseOrThrow(forwardMessageSchema, req.body, ApiError);
+  const store = getStore();
+  const result = await forwardMessage(store, {
+    sourceConversationId: conversationId,
+    messageId,
+    targetConversationId: body.targetConversationId,
+    userId: req.user._id,
+    clientId: body.clientId
+  });
+  if (!result.duplicate) {
+    const io = req.app.get('io');
+    if (typeof io?.finalizeAndDeliver === 'function') await io.finalizeAndDeliver(result);
+    else io?.emitDirectMessage(result);
+  }
+  res.status(201).json({
+    message: result.message,
+    duplicate: result.duplicate,
+    conversation: conversationSummary(result.conversation, {
+      viewerId: req.user._id,
+      otherUser: await getPeer(store, result.conversation, req.user._id)
+    })
+  });
+}
+
 export default {
   index,
   startWithUser,
   show,
   messages,
   send,
+  edit,
+  remove,
+  react,
+  forward,
   read,
   delivered,
   hide,

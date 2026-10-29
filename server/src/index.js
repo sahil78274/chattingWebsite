@@ -7,6 +7,8 @@ import { createSocketServer } from './sockets/index.js';
 
 async function main() {
   const store = await initStore();
+  const { bootstrapAdmin } = await import('./services/adminService.js');
+  await bootstrapAdmin(store);
 
   if (config.db.seedDemo && !config.isProd) {
     const { seedDemoData } = await import('./utils/demoData.js');

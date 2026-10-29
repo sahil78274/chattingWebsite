@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { ArrowLeft, Ban, Bell, BellOff, Flag, MoreVertical, Trash2, UserRound, Volume2, VolumeX } from 'lucide-react';
+import { ArrowLeft, Ban, Bell, BellOff, Flag, MoreVertical, Search, Trash2, UserRound, Volume2, VolumeX, X } from 'lucide-react';
 import { Avatar } from './Avatar.jsx';
 import { formatLastSeen } from '../lib/format.js';
 import { useClickOutside } from '../hooks/useClickOutside.js';
@@ -19,10 +19,14 @@ export function ChatHeader({
   muted = false,
   onToggleMute,
   soundEnabled = true,
-  onToggleSound
+  onToggleSound,
+  searchQuery = '',
+  onSearchChange
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const menuRef = useRef(null);
+  const searchRef = useRef(null);
   useClickOutside(menuRef, () => setMenuOpen(false), menuOpen);
 
   const presenceText = typing ? 'typing…' : formatLastSeen(peer);
@@ -30,6 +34,31 @@ export function ChatHeader({
 
   return (
     <header className="chat-header">
+      {searchOpen ? (
+        <div className="chat-header__search">
+          <button type="button" className="icon-btn chat-header__back" onClick={() => { setSearchOpen(false); onSearchChange?.(''); }} aria-label="Close search">
+            <ArrowLeft size={20} />
+          </button>
+          <div className="search-box" style={{ flex: 1 }}>
+            <Search size={16} aria-hidden />
+            <input
+              ref={searchRef}
+              type="search"
+              value={searchQuery}
+              onChange={(event) => onSearchChange?.(event.target.value)}
+              placeholder="Search this conversation"
+              aria-label="Search this conversation"
+              autoFocus
+            />
+            {searchQuery ? (
+              <button type="button" className="search-box__clear" onClick={() => onSearchChange?.('')} aria-label="Clear search">
+                <X size={15} />
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+      <div className={`chat-header__main${searchOpen ? ' is-hidden' : ''}`}>
       <button type="button" className="icon-btn chat-header__back" onClick={onBack} aria-label="Back to conversations">
         <ArrowLeft size={20} />
       </button>
@@ -54,6 +83,17 @@ export function ChatHeader({
       </button>
 
       <div className="chat-header__actions">
+        {onSearchChange ? (
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={() => setSearchOpen(true)}
+            title="Search this conversation"
+            aria-label="Search this conversation"
+          >
+            <Search size={18} />
+          </button>
+        ) : null}
         <button
           type="button"
           className={`icon-btn${muted ? ' is-active' : ''}`}
@@ -188,6 +228,7 @@ export function ChatHeader({
             </div>
           ) : null}
         </div>
+      </div>
       </div>
     </header>
   );

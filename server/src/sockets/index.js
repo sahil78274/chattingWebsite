@@ -3,14 +3,19 @@ import cookie from 'cookie';
 import config from '../config/env.js';
 import logger from '../utils/logger.js';
 import { verifyAccessToken, ACCESS_COOKIE } from '../utils/tokens.js';
-import { idSchema, sanitizeText } from '../utils/validation.js';
+import { idSchema } from '../utils/validation.js';
+import { sanitizeText } from '../utils/validation.js';
 import ApiError from '../utils/ApiError.js';
 import {
   createMessage,
+  deleteMessage,
+  editMessage,
+  forwardMessage,
   loadConversationForUser,
   markConversationDelivered,
   markConversationRead,
-  peerIdsForUser
+  peerIdsForUser,
+  toggleReaction
 } from '../services/chatService.js';
 
 const userRoom = (userId) => `user:${userId}`;
@@ -98,7 +103,7 @@ export function createSocketServer(httpServer, store) {
       if (!token) return next(new Error('UNAUTHORIZED'));
       const payload = verifyAccessToken(token);
       const user = await store.findUserById(payload.sub);
-      if (!user) return next(new Error('UNAUTHORIZED'));
+      if (!user || (user.status || 'active') !== 'active') return next(new Error('UNAUTHORIZED'));
       if ((user.tokenVersion || 0) !== (payload.tokenVersion || 0)) {
         return next(new Error('SESSION_REVOKED'));
       }
@@ -194,6 +199,37 @@ export function createSocketServer(httpServer, store) {
     io.to(userRoom(blockedId)).emit('block:changed', { userId: blockerId, blocked, byMe: false });
   };
 
+  async function broadcastToConversation(conversationId, event, payload) {
+    const conversation = await store.findConversationById(conversationId);
+    if (!conversation) return;
+    for (const participant of conversation.participants) {
+      const viewerId = participant.user;
+      const body = { ...payload };
+      if (body.message?.reactions) {
+        body.message = {
+          ...body.message,
+          reactions: body.message.reactions.map((reaction) => ({
+            ...reaction,
+            reacted: (reaction.userIds || []).includes(viewerId)
+          }))
+        };
+      }
+      io.to(userRoom(viewerId)).emit(event, body);
+    }
+  }
+
+  io.emitMessageUpdated = (result) => {
+    if (!result?.message) return;
+    broadcastToConversation(result.conversationId, 'message:updated', {
+      conversationId: result.conversationId,
+      message: result.message
+    }).catch(() => {});
+  };
+
+  io.emitMessageRemoved = ({ conversationId, messageId, userId }) => {
+    io.to(userRoom(userId)).emit('message:removed', { conversationId, messageId });
+  };
+
   // ------------------------------------------------------------ connection
   io.on('connection', async (socket) => {
     const user = socket.data.user;
@@ -252,12 +288,17 @@ export function createSocketServer(httpServer, store) {
         const conversationId = idSchema.parse(payload?.conversationId);
         const text = sanitizeText(payload?.text);
         const clientId = typeof payload?.clientId === 'string' ? payload.clientId.slice(0, 80) : null;
+        const replyToId =
+          typeof payload?.replyToId === 'string' && idSchema.safeParse(payload.replyToId).success
+            ? payload.replyToId
+            : null;
 
         const result = await createMessage(store, {
           conversationId,
           senderId: userId,
           text,
-          clientId
+          clientId,
+          replyToId
         });
 
         if (!result.duplicate) {
@@ -342,6 +383,79 @@ export function createSocketServer(httpServer, store) {
           });
         }
         if (typeof ack === 'function') ack({ ok: true });
+      } catch (error) {
+        ackError(ack, error);
+      }
+    });
+
+    socket.on('message:edit', async (payload, ack) => {
+      try {
+        const conversationId = idSchema.parse(payload?.conversationId);
+        const messageId = idSchema.parse(payload?.messageId);
+        const text = sanitizeText(payload?.text);
+        const result = await editMessage(store, { conversationId, messageId, userId, text });
+        io.emitMessageUpdated(result);
+        if (typeof ack === 'function') ack({ ok: true, message: result.message });
+      } catch (error) {
+        ackError(ack, error);
+      }
+    });
+
+    socket.on('message:delete', async (payload, ack) => {
+      try {
+        const conversationId = idSchema.parse(payload?.conversationId);
+        const messageId = idSchema.parse(payload?.messageId);
+        const scope = payload?.scope === 'everyone' ? 'everyone' : 'me';
+        const result = await deleteMessage(store, { conversationId, messageId, userId, scope });
+        if (result.scope === 'everyone') io.emitMessageUpdated(result);
+        else io.emitMessageRemoved({ conversationId, messageId, userId });
+        if (typeof ack === 'function') ack({ ok: true, ...result });
+      } catch (error) {
+        ackError(ack, error);
+      }
+    });
+
+    socket.on('message:react', async (payload, ack) => {
+      try {
+        const conversationId = idSchema.parse(payload?.conversationId);
+        const messageId = idSchema.parse(payload?.messageId);
+        const emoji = typeof payload?.emoji === 'string' ? payload.emoji : '';
+        const result = await toggleReaction(store, { conversationId, messageId, userId, emoji });
+        io.emitMessageUpdated(result);
+        if (typeof ack === 'function') ack({ ok: true, message: result.message });
+      } catch (error) {
+        ackError(ack, error);
+      }
+    });
+
+    socket.on('message:forward', async (payload, ack) => {
+      try {
+        if (!allowSend()) {
+          throw ApiError.tooMany('You are sending messages too quickly', { code: 'MESSAGE_RATE_LIMIT' });
+        }
+        const sourceConversationId = idSchema.parse(payload?.conversationId);
+        const messageId = idSchema.parse(payload?.messageId);
+        const targetConversationId = idSchema.parse(payload?.targetConversationId);
+        const clientId = typeof payload?.clientId === 'string' ? payload.clientId.slice(0, 80) : null;
+        const result = await forwardMessage(store, {
+          sourceConversationId,
+          messageId,
+          targetConversationId,
+          userId,
+          clientId
+        });
+        if (!result.duplicate) {
+          await io.finalizeAndDeliver(result);
+          socket.join(conversationRoom(targetConversationId));
+        }
+        if (typeof ack === 'function') {
+          ack({
+            ok: true,
+            message: result.message,
+            duplicate: result.duplicate,
+            conversationId: targetConversationId
+          });
+        }
       } catch (error) {
         ackError(ack, error);
       }

@@ -40,6 +40,7 @@ export class MemoryStore {
     this.reports = new Map();
     this.refreshTokens = new Map();
     this.passwordResetTokens = new Map();
+    this.auditLogs = new Map();
   }
 
   async connect() {
@@ -58,7 +59,8 @@ export class MemoryStore {
       this.blocks,
       this.reports,
       this.refreshTokens,
-      this.passwordResetTokens
+      this.passwordResetTokens,
+      this.auditLogs
     ]) {
       map.clear();
     }
@@ -87,6 +89,8 @@ export class MemoryStore {
       privacy: { lastSeen: 'everyone' },
       presence: { online: false, lastSeen: now },
       tokenVersion: 0,
+      role: 'user',
+      status: 'active',
       ...clone(data),
       usernameLower: data.username.toLowerCase(),
       email: data.email.toLowerCase(),
@@ -169,6 +173,7 @@ export class MemoryStore {
     const isId = /^[a-f0-9]{24}$/i.test(needle);
     const matches = [...this.users.values()].filter((user) => {
       if (user._id === excludeId) return false;
+      if ((user.status || 'active') !== 'active') return false;
       if (isId && user._id === needle) return true;
       return user.usernameLower.startsWith(needle);
     });
@@ -273,6 +278,11 @@ export class MemoryStore {
       deliveredAt: null,
       readAt: null,
       editedAt: null,
+      deletedAt: null,
+      deletedBy: null,
+      deletedFor: [],
+      replyTo: null,
+      reactions: [],
       ...clone(data),
       _id: data._id || newId(),
       createdAt: data.createdAt ? new Date(data.createdAt) : new Date()
@@ -298,11 +308,20 @@ export class MemoryStore {
     return clone(this.messages.get(id) || null);
   }
 
-  async listMessages({ conversationId, limit, before, beforeId }) {
+  async updateMessage(id, patch) {
+    const message = this.messages.get(id);
+    if (!message) return null;
+    const next = { ...message, ...clone(patch) };
+    this.messages.set(id, next);
+    return clone(next);
+  }
+
+  async listMessages({ conversationId, limit, before, beforeId, viewerId }) {
     const beforeTime = before ? new Date(before).getTime() : null;
     const list = [...this.messages.values()]
       .filter((message) => {
         if (message.conversation !== conversationId) return false;
+        if (viewerId && (message.deletedFor || []).includes(viewerId)) return false;
         if (beforeTime === null) return true;
         const time = new Date(message.createdAt).getTime();
         if (time < beforeTime) return true;
@@ -346,11 +365,62 @@ export class MemoryStore {
   async countUnreadForUser({ conversationId, userId }) {
     let count = 0;
     for (const message of this.messages.values()) {
-      if (message.conversation === conversationId && message.sender !== userId && message.readAt === null) {
+      if (
+        message.conversation === conversationId &&
+        message.sender !== userId &&
+        message.readAt === null &&
+        !message.deletedAt &&
+        !(message.deletedFor || []).includes(userId)
+      ) {
         count += 1;
       }
     }
     return count;
+  }
+
+  async listUsersAdmin({ query = '', status = 'all', limit = 20, offset = 0 }) {
+    const needle = String(query || '').trim().toLowerCase();
+    let users = [...this.users.values()].filter((user) => {
+      if (status && status !== 'all' && (user.status || 'active') !== status) return false;
+      if (!needle) return true;
+      return (
+        user.usernameLower.startsWith(needle) ||
+        String(user.displayName || '').toLowerCase().includes(needle) ||
+        user.email === needle
+      );
+    });
+    users.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const total = users.length;
+    return { users: clone(users.slice(offset, offset + limit)), total };
+  }
+
+  async countUsersByStatus() {
+    const users = [...this.users.values()];
+    const since = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    return {
+      total: users.filter((u) => (u.status || 'active') !== 'deleted').length,
+      active: users.filter((u) => (u.status || 'active') === 'active').length,
+      suspended: users.filter((u) => u.status === 'suspended').length,
+      admins: users.filter((u) => u.role === 'admin' && (u.status || 'active') === 'active').length,
+      recent: users.filter((u) => (u.status || 'active') !== 'deleted' && new Date(u.createdAt).getTime() >= since)
+        .length
+    };
+  }
+
+  async countActiveAdmins() {
+    return [...this.users.values()].filter((u) => u.role === 'admin' && (u.status || 'active') === 'active').length;
+  }
+
+  async createAuditLog(data) {
+    const id = newId();
+    const log = { _id: id, createdAt: new Date(), metadata: {}, ...clone(data) };
+    this.auditLogs.set(id, log);
+    return clone(log);
+  }
+
+  async listAuditLogs({ limit = 30, offset = 0 }) {
+    const logs = [...this.auditLogs.values()].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    return { logs: clone(logs.slice(offset, offset + limit)), total: logs.length };
   }
 
   // ---------------------------------------------------------------- blocks

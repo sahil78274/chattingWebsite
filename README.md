@@ -47,10 +47,12 @@ presence, typing indicators, blocking and reporting.
 - Password visibility toggles and a strength meter on every password field.
 
 ### Profiles
-- Unique username, stable user ID, display name, avatar (upload or colour), optional bio,
-  account creation date, online status, last seen (with a privacy setting).
-- Editable display name, bio, avatar colour and avatar image upload.
-- Public profiles never expose emails, password hashes or session data.
+- Unique username (case-insensitive), stable user ID, **display names may repeat**, avatar
+  (upload or colour), optional bio, account creation date, online status, last seen (privacy setting).
+- Editable display name, bio, avatar colour and avatar image upload. Photos are stored in S3 (if
+  configured), otherwise MongoDB GridFS, otherwise local disk for development. The client never keeps
+  a blob URL as the permanent picture.
+- Public profiles never expose emails, password hashes, roles or session data.
 
 ### Search
 - Search by **partial username** (prefix, case-insensitive) or **exact 24-char user ID**.
@@ -66,7 +68,10 @@ presence, typing indicators, blocking and reporting.
 - Real-time one-to-one messaging over authenticated Socket.IO rooms.
 - Messages persisted before the sender is acknowledged, server-generated IDs and timestamps.
 - History pagination (30 messages per page, cursor based), with "load earlier messages".
-- Delivery receipts (`sent → delivered → read`) and read receipts, per message.
+- Delivery receipts (`sent → delivered → read`) and read receipts, per message (monotonic, sender-only ticks).
+- Message actions: react, reply, copy, edit own, delete for me, delete for everyone (own messages),
+  forward, select. Permissions are enforced on the server.
+- Emoji reactions persist and sync over Socket.IO.
 - Idempotent sends: a client-generated `clientId` is unique per conversation/sender, so retries and
   reconnects can never create duplicates.
 - Enter to send, Shift+Enter for a newline, auto-growing composer, character counter, 4000-char limit.
@@ -76,7 +81,10 @@ presence, typing indicators, blocking and reporting.
 
 ### Extras (really implemented, not static buttons)
 - Typing indicators, online/offline presence, last-seen privacy.
-- Dark theme by default plus a light theme toggle (persisted).
+- Dark (`#000000`) and light themes only, FOUC-safe, persisted in localStorage.
+- Administrator dashboard (`/app/admin`) for accounts with `role: admin`. Bootstrap an existing
+  user with `BOOTSTRAP_ADMIN_USERNAME` or `BOOTSTRAP_ADMIN_EMAIL` — there is no hardcoded password
+  and ordinary users cannot promote themselves.
 - Browser notifications with explicit permission handling.
 - Avatar image upload (local disk on the API by default — see [uploads](#image-uploads)).
 - Block / unblock users (server-enforced in both directions) and report a user.
@@ -276,7 +284,11 @@ without the required secrets. Copy `.env.example` → `.env` in `server/` and `c
 | `AVATAR_MAX_BYTES` | `2097152` (2 MB) | no | Upload limit. |
 | `SEARCH_PAGE_SIZE` | `10` | no | Max search results per page. |
 | `MESSAGE_PAGE_SIZE` | `30` | no | Default history page size. |
-| `UPLOAD_DIR` | `server/uploads` | no | Use a persistent disk or object storage in production. |
+| `UPLOAD_DIR` | `server/uploads` | no | Development fallback only. Render wipes this on deploy. |
+| `S3_BUCKET` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | – | for durable avatars on Render | Optional S3-compatible storage. If unset, avatars go to GridFS when Mongo is connected. |
+| `S3_REGION` / `S3_ENDPOINT` / `S3_PUBLIC_BASE_URL` | `auto` / – / – | with S3 | R2/MinIO: set `S3_ENDPOINT` and a public URL. |
+| `BOOTSTRAP_ADMIN_USERNAME` / `BOOTSTRAP_ADMIN_EMAIL` | – | to create the first admin | Promotes an **existing** account on boot. Never put a password here. |
+| `ALLOW_MEMORY_STORE` | `false` | no | Production refuses the in-memory store unless this is true. |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` / `SMTP_USER` / `SMTP_PASS` / `MAIL_FROM` | – | for password reset emails | Without these the reset link is only exposed in dev. |
 | `SEED_DEMO` | `false` | no | Creates demo accounts on boot (never in production). |
 | `BRAND_NAME` / `BRAND_TAGLINE` | Connectly | no | Server-side branding. |
@@ -349,13 +361,27 @@ or the SPA cookie. Errors always return `{ "error": { "message": "...", "code": 
 | GET | `/conversations/blocks` | ✔ | Users you blocked |
 | GET | `/conversations/:id` | ✔ | Conversation + peer profile |
 | GET | `/conversations/:id/messages?limit=&before=&beforeId=` | ✔ | Paginated history; use `nextCursor` + `nextCursorId` from the response as the next `before`/`beforeId` |
-| POST | `/conversations/:id/messages` | ✔ | `{text,clientId?}` REST fallback for sending |
+| POST | `/conversations/:id/messages` | ✔ | `{text,clientId?,replyToId?}` REST fallback for sending |
+| PATCH | `/conversations/:id/messages/:messageId` | ✔ | `{text}` edit own message |
+| DELETE | `/conversations/:id/messages/:messageId` | ✔ | `{scope: "me"\|"everyone"}` |
+| POST | `/conversations/:id/messages/:messageId/reactions` | ✔ | `{emoji}` toggle |
+| POST | `/conversations/:id/messages/:messageId/forward` | ✔ | `{targetConversationId}` |
 | POST | `/conversations/:id/read` | ✔ | Mark as read, notifies the sender |
 | POST | `/conversations/:id/delivered` | ✔ | Mark as delivered |
 | GET | `/conversations/:id/unread` | ✔ | Unread count for you |
 | DELETE | `/conversations/:id` | ✔ | Hide from your list only |
 | GET | `/health` | – | Liveness + active store driver |
 | GET | `/config` | – | Brand, limits, whether email is configured |
+
+### Admin (role `admin` only)
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| GET | `/admin/overview` | admin | Account counts + recent audit |
+| GET | `/admin/users?q=&status=&page=` | admin | Search including emails |
+| POST | `/admin/users` | admin | Create a user |
+| PATCH | `/admin/users/:id/status` | admin | `active` / `suspended` / `deleted` |
+| PATCH | `/admin/users/:id/role` | admin | `user` / `admin` (not self, not last admin) |
+| GET | `/admin/audit` | admin | Audit log |
 
 ---
 
@@ -367,13 +393,19 @@ belongs to — **client-supplied conversation IDs are always re-validated**.
 
 | Direction | Event | Payload | Notes |
 | --- | --- | --- | --- |
-| client → server | `message:send` | `{conversationId, text, clientId}` + ack | Persists first, then broadcasts; ack `{ok, message, duplicate}` |
+| client → server | `message:send` | `{conversationId, text, clientId, replyToId?}` + ack | Persists first, then broadcasts; ack `{ok, message, duplicate}` |
+| client → server | `message:edit` | `{conversationId, messageId, text}` | Own messages only |
+| client → server | `message:delete` | `{conversationId, messageId, scope}` | `me` or `everyone` |
+| client → server | `message:react` | `{conversationId, messageId, emoji}` | Toggle |
+| client → server | `message:forward` | `{conversationId, messageId, targetConversationId}` | Creates a new message |
 | client → server | `conversation:join` / `conversation:leave` | `{conversationId}` | Membership checked server-side |
 | client → server | `typing:start` / `typing:stop` | `{conversationId}` | Sent only to the other participant |
 | client → server | `message:read` | `{conversationId}` | Clears unread, notifies the sender |
 | client → server | `message:delivered` | `{conversationId}` | Delivery receipt (sender derived server-side) |
 | client → server | `presence:ping` | – | Optional latency check |
 | server → client | `message:new` | `{message, conversationId, senderId, recipientId}` | Only to the two participants |
+| server → client | `message:updated` | `{conversationId, message}` | Edits, delete-for-everyone, reactions |
+| server → client | `message:removed` | `{conversationId, messageId}` | Delete-for-me, that user only |
 | server → client | `message:read` | `{conversationId, readerId, readAt}` | Reader → sender only |
 | server → client | `receipt:delivered` | `{conversationId, recipientId, deliveredAt}` | Recipient → sender only |
 | server → client | `typing:start` / `typing:stop` | `{conversationId, userId}` | Peer only |
@@ -390,7 +422,7 @@ top of the REST limiter, and every handler validates its input with Zod.
 
 ```bash
 cd server
-npm test            # 51 tests, in-memory store (default)
+npm test            # auth, messaging, receipts, reactions, admin, avatars (in-memory store)
 npm run test:mongo  # same suite against MongoDB (needs MONGODB_URI)
 ```
 

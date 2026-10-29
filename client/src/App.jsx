@@ -4,6 +4,7 @@ import { RegisterPage } from './pages/RegisterPage.jsx';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage.jsx';
 import { ResetPasswordPage } from './pages/ResetPasswordPage.jsx';
 import { ChatPage } from './pages/ChatPage.jsx';
+import { AdminPage } from './pages/AdminPage.jsx';
 import { NotFoundPage } from './pages/NotFoundPage.jsx';
 import { useAuth } from './context/AuthContext.jsx';
 import { Brand } from './components/Brand.jsx';
@@ -33,6 +34,20 @@ function RequireAuth({ children }) {
   return children;
 }
 
+function RequireAdmin({ children }) {
+  const { status, user } = useAuth();
+  const location = useLocation();
+
+  if (status === 'loading') return <BootSplash label="Checking administrator access…" />;
+  if (status !== 'authenticated') {
+    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  }
+  if (user?.role !== 'admin') {
+    return <Navigate to="/app" replace />;
+  }
+  return children;
+}
+
 export function App() {
   return (
     <Routes>
@@ -47,6 +62,14 @@ export function App() {
           <RequireAuth>
             <ChatPage />
           </RequireAuth>
+        }
+      />
+      <Route
+        path="/app/admin"
+        element={
+          <RequireAdmin>
+            <AdminPage />
+          </RequireAdmin>
         }
       />
       <Route path="*" element={<NotFoundPage />} />

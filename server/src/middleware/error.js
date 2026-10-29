@@ -26,19 +26,39 @@ export function errorHandler(err, req, res, next) {
     // pre-check and the write would surface as a generic 500.
     const field = error.field || null;
     const details = {};
-    if (field === 'usernameLower' || field === 'username') details.username = 'That username is already taken';
+    if (field === 'usernameLower' || field === 'username') details.username = 'This username is already taken.';
     else if (field === 'email') details.email = 'An account with this email already exists';
     else if (field === 'pairKey') details._ = 'Conversation already exists';
     else if (field === 'clientId') details._ = 'Duplicate message';
-    error = new ApiError(409, field === 'email' ? 'An account with this email already exists' : field === 'usernameLower' || field === 'username' ? 'That username is already taken' : 'That value is already in use', {
-      code: field === 'usernameLower' || field === 'username' ? 'USERNAME_TAKEN' : field === 'email' ? 'EMAIL_TAKEN' : 'DUPLICATE_KEY',
-      details: Object.keys(details).length ? details : undefined
-    });
+    error = new ApiError(
+      409,
+      field === 'email'
+        ? 'An account with this email already exists'
+        : field === 'usernameLower' || field === 'username'
+          ? 'This username is already taken.'
+          : 'That value is already in use',
+      {
+        code:
+          field === 'usernameLower' || field === 'username'
+            ? 'USERNAME_TAKEN'
+            : field === 'email'
+              ? 'EMAIL_TAKEN'
+              : 'DUPLICATE_KEY',
+        details: Object.keys(details).length ? details : undefined
+      }
+    );
   } else if (error?.code === 11000) {
-    const field = Object.keys(error.keyPattern || error.keyValue || {})[0];
-    error = new ApiError(409, 'That value is already in use', {
-      code: 'DUPLICATE_KEY',
-      details: field ? { [field]: 'Already in use' } : undefined
+    const rawField = Object.keys(error.keyPattern || error.keyValue || {})[0];
+    const field = rawField === 'usernameLower' ? 'username' : rawField;
+    const message =
+      field === 'username'
+        ? 'This username is already taken.'
+        : field === 'email'
+          ? 'An account with this email already exists'
+          : 'That value is already in use';
+    error = new ApiError(409, message, {
+      code: field === 'username' ? 'USERNAME_TAKEN' : field === 'email' ? 'EMAIL_TAKEN' : 'DUPLICATE_KEY',
+      details: field ? { [field]: message } : undefined
     });
   } else if (error?.type === 'entity.too.large') {
     error = new ApiError(413, 'Request payload is too large', { code: 'PAYLOAD_TOO_LARGE' });

@@ -113,7 +113,56 @@ export const sendMessageSchema = z.object({
     .min(1, 'Message cannot be empty')
     .max(MESSAGE_MAX_LENGTH, `Message must be at most ${MESSAGE_MAX_LENGTH} characters`)
     .refine((value) => value.trim().length > 0, 'Message cannot be empty'),
+  clientId: z.string().trim().max(80).optional(),
+  replyToId: z.string().trim().length(24).optional()
+});
+
+export const editMessageSchema = z.object({
+  text: z
+    .string({ required_error: 'Message text is required' })
+    .min(1, 'Message cannot be empty')
+    .max(MESSAGE_MAX_LENGTH, `Message must be at most ${MESSAGE_MAX_LENGTH} characters`)
+    .refine((value) => value.trim().length > 0, 'Message cannot be empty')
+});
+
+export const deleteMessageSchema = z.object({
+  scope: z.enum(['me', 'everyone']).default('me')
+});
+
+export const reactionSchema = z.object({
+  emoji: z
+    .string()
+    .trim()
+    .min(1)
+    .max(16)
+});
+
+export const forwardMessageSchema = z.object({
+  targetConversationId: z.string().trim().length(24, 'Invalid identifier'),
   clientId: z.string().trim().max(80).optional()
+});
+
+export const adminSearchSchema = z.object({
+  q: z.string().trim().max(80).optional().default(''),
+  page: z.coerce.number().int().min(1).max(200).default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  status: z.enum(['active', 'suspended', 'deleted', 'all']).optional().default('all')
+});
+
+export const adminCreateUserSchema = z.object({
+  username: usernameSchema,
+  email: emailSchema,
+  password: passwordSchema,
+  displayName: z.string().trim().min(2).max(DISPLAY_NAME_MAX).optional(),
+  role: z.enum(['user', 'admin']).optional().default('user')
+});
+
+export const adminStatusSchema = z.object({
+  status: z.enum(['active', 'suspended', 'deleted'])
+});
+
+export const adminRoleSchema = z.object({
+  role: z.enum(['user', 'admin'])
 });
 
 export const forgotPasswordSchema = z.object({ email: emailSchema });
