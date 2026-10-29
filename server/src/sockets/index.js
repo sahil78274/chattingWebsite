@@ -3,9 +3,9 @@ import cookie from 'cookie';
 import config from '../config/env.js';
 import logger from '../utils/logger.js';
 import { verifyAccessToken, ACCESS_COOKIE } from '../utils/tokens.js';
-import { idSchema } from '../utils/validation.js';
-import { sanitizeText } from '../utils/validation.js';
+import { idSchema, parseId, sanitizeText } from '../utils/validation.js';
 import ApiError from '../utils/ApiError.js';
+import { idsEqual, normalizeId } from '../utils/ids.js';
 import {
   createMessage,
   deleteMessage,
@@ -18,8 +18,8 @@ import {
   toggleReaction
 } from '../services/chatService.js';
 
-const userRoom = (userId) => `user:${userId}`;
-const conversationRoom = (conversationId) => `conv:${conversationId}`;
+const userRoom = (userId) => `user:${normalizeId(userId) || userId}`;
+const conversationRoom = (conversationId) => `conv:${normalizeId(conversationId) || conversationId}`;
 
 /** In-process presence registry: userId -> Set<socketId>. */
 const presence = new Map();
@@ -137,11 +137,11 @@ export function createSocketServer(httpServer, store) {
    */
   function deliverMessage(result) {
     const { message, conversation } = result;
-    const recipient = conversation.participants.find((p) => p.user !== message.senderId);
+    const recipient = conversation.participants.find((p) => !idsEqual(p.user, message.senderId));
     for (const participant of conversation.participants) {
       io.to(userRoom(participant.user)).emit('message:new', {
         message,
-        conversationId: conversation._id,
+        conversationId: normalizeId(conversation._id),
         senderId: message.senderId,
         recipientId: recipient?.user || null,
         unreadCount: participant.unreadCount
@@ -159,8 +159,8 @@ export function createSocketServer(httpServer, store) {
    */
   io.finalizeAndDeliver = async (result) => {
     if (!result || result.duplicate) return result;
-    const conversationId = result.conversation?._id || result.message?.conversationId;
-    const recipientId = result.recipientId;
+    const conversationId = normalizeId(result.conversation?._id || result.message?.conversationId);
+    const recipientId = normalizeId(result.recipientId);
     if (recipientId && conversationId && isUserOnline(recipientId) && !result.message?.readAt) {
       if (!result.message.deliveredAt) {
         const deliveredAt = new Date();
@@ -233,7 +233,7 @@ export function createSocketServer(httpServer, store) {
   // ------------------------------------------------------------ connection
   io.on('connection', async (socket) => {
     const user = socket.data.user;
-    const userId = user._id;
+    const userId = normalizeId(user._id || user.id);
 
     if (!presence.has(userId)) presence.set(userId, new Set());
     const wasOffline = presence.get(userId).size === 0;
@@ -285,7 +285,7 @@ export function createSocketServer(httpServer, store) {
         if (!allowSend()) {
           throw ApiError.tooMany('You are sending messages too quickly', { code: 'MESSAGE_RATE_LIMIT' });
         }
-        const conversationId = idSchema.parse(payload?.conversationId);
+        const conversationId = parseId(payload?.conversationId, ApiError);
         const text = sanitizeText(payload?.text);
         const clientId = typeof payload?.clientId === 'string' ? payload.clientId.slice(0, 80) : null;
         const replyToId =
@@ -322,7 +322,7 @@ export function createSocketServer(httpServer, store) {
     // ------------------------------------------------------- joining room
     socket.on('conversation:join', async (payload, ack) => {
       try {
-        const conversationId = idSchema.parse(payload?.conversationId);
+        const conversationId = parseId(payload?.conversationId, ApiError);
         await loadConversationForUser(store, conversationId, userId);
         socket.join(conversationRoom(conversationId));
         await markConversationDelivered(store, { conversationId, userId });
@@ -343,7 +343,7 @@ export function createSocketServer(httpServer, store) {
       if (!parsed.success) return;
       try {
         const conversation = await loadConversationForUser(store, parsed.data, userId);
-        const peer = conversation.participants.find((p) => p.user !== userId);
+        const peer = conversation.participants.find((p) => !idsEqual(p.user, userId));
         if (!peer) return;
         socket.to(userRoom(peer.user)).emit('typing:start', {
           conversationId: parsed.data,
@@ -360,7 +360,7 @@ export function createSocketServer(httpServer, store) {
       if (!parsed.success) return;
       try {
         const conversation = await loadConversationForUser(store, parsed.data, userId);
-        const peer = conversation.participants.find((p) => p.user !== userId);
+        const peer = conversation.participants.find((p) => !idsEqual(p.user, userId));
         if (peer) {
           socket.to(userRoom(peer.user)).emit('typing:stop', { conversationId: parsed.data, userId });
         }
@@ -372,7 +372,7 @@ export function createSocketServer(httpServer, store) {
     // ----------------------------------------------------------- receipts
     socket.on('message:delivered', async (payload, ack) => {
       try {
-        const conversationId = idSchema.parse(payload?.conversationId);
+        const conversationId = parseId(payload?.conversationId, ApiError);
         // The sender is derived from the conversation, never trusted from the client.
         const { deliveredAt, senderId } = await markConversationDelivered(store, { conversationId, userId });
         if (senderId) {
@@ -390,8 +390,8 @@ export function createSocketServer(httpServer, store) {
 
     socket.on('message:edit', async (payload, ack) => {
       try {
-        const conversationId = idSchema.parse(payload?.conversationId);
-        const messageId = idSchema.parse(payload?.messageId);
+        const conversationId = parseId(payload?.conversationId, ApiError);
+        const messageId = parseId(payload?.messageId, ApiError);
         const text = sanitizeText(payload?.text);
         const result = await editMessage(store, { conversationId, messageId, userId, text });
         io.emitMessageUpdated(result);
@@ -403,8 +403,8 @@ export function createSocketServer(httpServer, store) {
 
     socket.on('message:delete', async (payload, ack) => {
       try {
-        const conversationId = idSchema.parse(payload?.conversationId);
-        const messageId = idSchema.parse(payload?.messageId);
+        const conversationId = parseId(payload?.conversationId, ApiError);
+        const messageId = parseId(payload?.messageId, ApiError);
         const scope = payload?.scope === 'everyone' ? 'everyone' : 'me';
         const result = await deleteMessage(store, { conversationId, messageId, userId, scope });
         if (result.scope === 'everyone') io.emitMessageUpdated(result);
@@ -417,8 +417,8 @@ export function createSocketServer(httpServer, store) {
 
     socket.on('message:react', async (payload, ack) => {
       try {
-        const conversationId = idSchema.parse(payload?.conversationId);
-        const messageId = idSchema.parse(payload?.messageId);
+        const conversationId = parseId(payload?.conversationId, ApiError);
+        const messageId = parseId(payload?.messageId, ApiError);
         const emoji = typeof payload?.emoji === 'string' ? payload.emoji : '';
         const result = await toggleReaction(store, { conversationId, messageId, userId, emoji });
         io.emitMessageUpdated(result);
@@ -433,9 +433,9 @@ export function createSocketServer(httpServer, store) {
         if (!allowSend()) {
           throw ApiError.tooMany('You are sending messages too quickly', { code: 'MESSAGE_RATE_LIMIT' });
         }
-        const sourceConversationId = idSchema.parse(payload?.conversationId);
-        const messageId = idSchema.parse(payload?.messageId);
-        const targetConversationId = idSchema.parse(payload?.targetConversationId);
+        const sourceConversationId = parseId(payload?.conversationId, ApiError);
+        const messageId = parseId(payload?.messageId, ApiError);
+        const targetConversationId = parseId(payload?.targetConversationId, ApiError);
         const clientId = typeof payload?.clientId === 'string' ? payload.clientId.slice(0, 80) : null;
         const result = await forwardMessage(store, {
           sourceConversationId,
@@ -463,7 +463,7 @@ export function createSocketServer(httpServer, store) {
 
     socket.on('message:read', async (payload, ack) => {
       try {
-        const conversationId = idSchema.parse(payload?.conversationId);
+        const conversationId = parseId(payload?.conversationId, ApiError);
         const result = await markConversationRead(store, { conversationId, userId });
         if (result.senderId) {
           io.to(userRoom(result.senderId)).emit('message:read', {

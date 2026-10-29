@@ -49,6 +49,12 @@ describe('Transport security', () => {
     const account = await createAccount(ctx, request);
     const res = await account.agent.get('/api/conversations/not-a-valid-id/messages');
     assert.equal(res.status, 400);
+    assert.equal(res.body.error.message, 'Invalid identifier');
+    assert.equal(res.body.error.code, 'INVALID_ID');
+
+    const nonHex = await account.agent.get(`/api/conversations/${'z'.repeat(24)}/messages`);
+    assert.equal(nonHex.status, 400);
+    assert.equal(nonHex.body.error.message, 'Invalid identifier');
   });
 });
 

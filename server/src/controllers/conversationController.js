@@ -2,7 +2,7 @@ import ApiError from '../utils/ApiError.js';
 import { getStore } from '../store/index.js';
 import {
   parseOrThrow,
-  idSchema,
+  parseId,
   sendMessageSchema,
   reportSchema,
   editMessageSchema,
@@ -35,7 +35,7 @@ export async function index(req, res) {
 }
 
 export async function startWithUser(req, res) {
-  const peerId = parseOrThrow(idSchema, req.params.userId, ApiError);
+  const peerId = parseId(req.params.userId, ApiError);
   const store = getStore();
   const conversation = await getOrCreateConversation(store, req.user._id, peerId);
   const payload = await getConversationPayload(store, conversation._id, req.user._id);
@@ -43,13 +43,13 @@ export async function startWithUser(req, res) {
 }
 
 export async function show(req, res) {
-  const conversationId = parseOrThrow(idSchema, req.params.conversationId, ApiError);
+  const conversationId = parseId(req.params.conversationId, ApiError);
   const payload = await getConversationPayload(getStore(), conversationId, req.user._id);
   res.json(payload);
 }
 
 export async function messages(req, res) {
-  const conversationId = parseOrThrow(idSchema, req.params.conversationId, ApiError);
+  const conversationId = parseId(req.params.conversationId, ApiError);
   const limit = Math.min(Number.parseInt(req.query.limit, 10) || config.limits.messagePageSize, 60);
   const before = req.query.before ? new Date(req.query.before) : null;
   if (before && Number.isNaN(before.getTime())) {
@@ -80,7 +80,7 @@ export async function messages(req, res) {
 }
 
 export async function send(req, res) {
-  const conversationId = parseOrThrow(idSchema, req.params.conversationId, ApiError);
+  const conversationId = parseId(req.params.conversationId, ApiError);
   const body = parseOrThrow(sendMessageSchema, req.body, ApiError);
   const store = getStore();
   const result = await createMessage(store, {
@@ -112,7 +112,7 @@ export async function send(req, res) {
 }
 
 export async function read(req, res) {
-  const conversationId = parseOrThrow(idSchema, req.params.conversationId, ApiError);
+  const conversationId = parseId(req.params.conversationId, ApiError);
   const result = await markConversationRead(getStore(), { conversationId, userId: req.user._id });
   req.app.get('io')?.emitReadReceipt({
     conversationId,
@@ -124,7 +124,7 @@ export async function read(req, res) {
 }
 
 export async function delivered(req, res) {
-  const conversationId = parseOrThrow(idSchema, req.params.conversationId, ApiError);
+  const conversationId = parseId(req.params.conversationId, ApiError);
   const result = await markConversationDelivered(getStore(), {
     conversationId,
     userId: req.user._id
@@ -138,13 +138,13 @@ export async function delivered(req, res) {
 }
 
 export async function hide(req, res) {
-  const conversationId = parseOrThrow(idSchema, req.params.conversationId, ApiError);
+  const conversationId = parseId(req.params.conversationId, ApiError);
   await hideConversation(getStore(), { conversationId, userId: req.user._id });
   res.json({ ok: true });
 }
 
 export async function unreadCount(req, res) {
-  const conversationId = parseOrThrow(idSchema, req.params.conversationId, ApiError);
+  const conversationId = parseId(req.params.conversationId, ApiError);
   const store = getStore();
   await loadConversationForUser(store, conversationId, req.user._id);
   const count = await store.countUnreadForUser({ conversationId, userId: req.user._id });
@@ -152,7 +152,7 @@ export async function unreadCount(req, res) {
 }
 
 export async function blockUser(req, res) {
-  const userId = parseOrThrow(idSchema, req.params.userId, ApiError);
+  const userId = parseId(req.params.userId, ApiError);
   if (userId === req.user._id) throw ApiError.badRequest('You cannot block yourself');
   const store = getStore();
   const target = await store.findUserById(userId);
@@ -168,7 +168,7 @@ export async function blockUser(req, res) {
 }
 
 export async function unblockUser(req, res) {
-  const userId = parseOrThrow(idSchema, req.params.userId, ApiError);
+  const userId = parseId(req.params.userId, ApiError);
   const store = getStore();
   await store.deleteBlock(req.user._id, userId);
   req.app.get('io')?.emitBlockChanged({ blockerId: req.user._id, blockedId: userId, blocked: false });
@@ -183,7 +183,7 @@ export async function listBlocks(req, res) {
 }
 
 export async function reportUser(req, res) {
-  const userId = parseOrThrow(idSchema, req.params.userId, ApiError);
+  const userId = parseId(req.params.userId, ApiError);
   const body = parseOrThrow(reportSchema, req.body, ApiError);
   if (userId === req.user._id) throw ApiError.badRequest('You cannot report yourself');
 
@@ -210,8 +210,8 @@ export async function reportUser(req, res) {
 }
 
 export async function edit(req, res) {
-  const conversationId = parseOrThrow(idSchema, req.params.conversationId, ApiError);
-  const messageId = parseOrThrow(idSchema, req.params.messageId, ApiError);
+  const conversationId = parseId(req.params.conversationId, ApiError);
+  const messageId = parseId(req.params.messageId, ApiError);
   const body = parseOrThrow(editMessageSchema, req.body, ApiError);
   const result = await editMessage(getStore(), {
     conversationId,
@@ -224,8 +224,8 @@ export async function edit(req, res) {
 }
 
 export async function remove(req, res) {
-  const conversationId = parseOrThrow(idSchema, req.params.conversationId, ApiError);
-  const messageId = parseOrThrow(idSchema, req.params.messageId, ApiError);
+  const conversationId = parseId(req.params.conversationId, ApiError);
+  const messageId = parseId(req.params.messageId, ApiError);
   const body = parseOrThrow(
     deleteMessageSchema,
     { scope: req.body?.scope || req.query?.scope || 'me' },
@@ -244,8 +244,8 @@ export async function remove(req, res) {
 }
 
 export async function react(req, res) {
-  const conversationId = parseOrThrow(idSchema, req.params.conversationId, ApiError);
-  const messageId = parseOrThrow(idSchema, req.params.messageId, ApiError);
+  const conversationId = parseId(req.params.conversationId, ApiError);
+  const messageId = parseId(req.params.messageId, ApiError);
   const body = parseOrThrow(reactionSchema, req.body, ApiError);
   const result = await toggleReaction(getStore(), {
     conversationId,
@@ -258,8 +258,8 @@ export async function react(req, res) {
 }
 
 export async function forward(req, res) {
-  const conversationId = parseOrThrow(idSchema, req.params.conversationId, ApiError);
-  const messageId = parseOrThrow(idSchema, req.params.messageId, ApiError);
+  const conversationId = parseId(req.params.conversationId, ApiError);
+  const messageId = parseId(req.params.messageId, ApiError);
   const body = parseOrThrow(forwardMessageSchema, req.body, ApiError);
   const store = getStore();
   const result = await forwardMessage(store, {

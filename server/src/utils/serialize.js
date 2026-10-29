@@ -4,6 +4,8 @@
  * versions or raw store internals.
  */
 
+import { idsEqual, normalizeId } from './ids.js';
+
 function toIso(value) {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
@@ -23,7 +25,7 @@ export function publicUser(user, { includeEmail = false } = {}) {
   if (!user) return null;
   if ((user.status || 'active') === 'deleted') {
     return {
-      id: user._id || user.id,
+      id: normalizeId(user._id || user.id),
       username: 'deleted',
       displayName: 'Deleted account',
       bio: '',
@@ -38,7 +40,7 @@ export function publicUser(user, { includeEmail = false } = {}) {
   }
   const lastSeenAllowed = user.privacy?.lastSeen !== 'nobody';
   const payload = {
-    id: user._id || user.id,
+    id: normalizeId(user._id || user.id),
     username: user.username,
     displayName: user.displayName,
     bio: user.bio || '',
@@ -66,7 +68,7 @@ export function selfUser(user) {
 export function adminUser(user) {
   if (!user) return null;
   return {
-    id: user._id || user.id,
+    id: normalizeId(user._id || user.id),
     username: user.username,
     displayName: user.displayName,
     email: user.email,
@@ -83,15 +85,18 @@ export function adminUser(user) {
 }
 
 export function conversationSummary(conversation, { viewerId, otherUser, blockedByMe = false, blockedMe = false }) {
-  const participant = conversation.participants.find((p) => p.user === viewerId);
+  const participant = (conversation.participants || []).find((p) => idsEqual(p.user, viewerId));
   return {
-    id: conversation._id,
+    id: normalizeId(conversation._id || conversation.id),
     type: conversation.type || 'direct',
     peer: publicUser(otherUser),
     lastMessage: conversation.lastMessage?.messageId
       ? {
           text: conversation.lastMessage.text || '',
-          senderId: conversation.lastMessage.senderId,
+          senderId:
+            conversation.lastMessage.senderId != null
+              ? normalizeId(conversation.lastMessage.senderId)
+              : null,
           createdAt: conversation.lastMessage.createdAt
         }
       : null,
@@ -130,9 +135,9 @@ export function messagePayload(message, { viewerId } = {}) {
       }
     : null;
   return {
-    id: message._id || message.id,
-    conversationId: message.conversation || message.conversationId,
-    senderId: message.sender || message.senderId,
+    id: normalizeId(message._id || message.id),
+    conversationId: normalizeId(message.conversation || message.conversationId),
+    senderId: normalizeId(message.sender || message.senderId),
     text: deletedAt ? '' : message.text,
     clientId: message.clientId || null,
     createdAt: toIso(message.createdAt) || message.createdAt,

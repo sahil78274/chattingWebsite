@@ -1,6 +1,6 @@
 import ApiError from '../utils/ApiError.js';
 import { getStore } from '../store/index.js';
-import { parseOrThrow, searchSchema, idSchema } from '../utils/validation.js';
+import { parseOrThrow, parseId, searchSchema } from '../utils/validation.js';
 import { publicUser } from '../utils/serialize.js';
 import { searchUsersForViewer } from '../services/chatService.js';
 import config from '../config/env.js';
@@ -18,7 +18,7 @@ export async function searchUsers(req, res) {
 }
 
 export async function getUser(req, res) {
-  const id = parseOrThrow(idSchema, req.params.userId, ApiError);
+  const id = parseId(req.params.userId, ApiError);
   const user = await getStore().findUserById(id);
   if (!user) throw ApiError.notFound('User not found', { code: 'USER_NOT_FOUND' });
   const store = getStore();

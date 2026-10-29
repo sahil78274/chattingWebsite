@@ -5,7 +5,7 @@ import {
   adminRoleSchema,
   adminSearchSchema,
   adminStatusSchema,
-  idSchema,
+  parseId,
   parseOrThrow
 } from '../utils/validation.js';
 import {
@@ -35,14 +35,14 @@ export async function createUser(req, res) {
 }
 
 export async function updateStatus(req, res) {
-  const userId = parseOrThrow(idSchema, req.params.userId, ApiError);
+  const userId = parseId(req.params.userId, ApiError);
   const { status } = parseOrThrow(adminStatusSchema, req.body, ApiError);
   const user = await setUserStatus(getStore(), req.user._id, userId, status);
   res.json({ user });
 }
 
 export async function updateRole(req, res) {
-  const userId = parseOrThrow(idSchema, req.params.userId, ApiError);
+  const userId = parseId(req.params.userId, ApiError);
   const { role } = parseOrThrow(adminRoleSchema, req.body, ApiError);
   const user = await setUserRole(getStore(), req.user._id, userId, role);
   res.json({ user });

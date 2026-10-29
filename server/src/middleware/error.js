@@ -19,8 +19,13 @@ export function errorHandler(err, req, res, next) {
       details
     });
   } else if (error?.name === 'CastError') {
+    logger.warn('Mongoose CastError', {
+      path: error.path,
+      kind: error.kind,
+      valueType: typeof error.value
+    });
     error = new ApiError(400, 'Invalid identifier', { code: 'INVALID_ID' });
-    } else if (error?.name === 'UniqueViolationError') {
+  } else if (error?.name === 'UniqueViolationError') {
     // Normalise the in-memory store's uniqueness errors to the same 409 shape
     // the Mongo duplicate-key branch uses. Without this, a race between the
     // pre-check and the write would surface as a generic 500.
